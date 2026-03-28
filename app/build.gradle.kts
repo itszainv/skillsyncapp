@@ -1,10 +1,12 @@
 plugins {
-    id("com.android.application")
+    // id("com.android.application")
 
     // Add the Google services Gradle plugin
     id("com.google.gms.google-services")
 
     //...
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.compose)
 }
 
 dependencies {
@@ -19,11 +21,6 @@ dependencies {
 
     // Add the dependencies for any other desired Firebase products
     // https://firebase.google.com/docs/android/setup#available-libraries
-}
-
-plugins {
-    alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.compose)
 }
 
 android {
