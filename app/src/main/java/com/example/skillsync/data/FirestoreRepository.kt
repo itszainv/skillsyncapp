@@ -94,19 +94,25 @@ class FirestoreRepository {
     }
 
     suspend fun getStudentFeedSubjects(): List<StudentFeedSubject> {
-        val videoIds = listOf(com.example.skillsync.R.raw.video1, com.example.skillsync.R.raw.video2)
+        val videoIds = listOf(
+            com.example.skillsync.R.raw.video1,
+            com.example.skillsync.R.raw.video2
+        )
         val thumbnailIds = listOf(
             com.example.skillsync.R.drawable.example_cover,
             com.example.skillsync.R.drawable.ic_launcher_foreground
         )
 
         return try {
-            getSubjects().mapIndexedNotNull { subjectIndex, subject ->
-                val courses = getCourses(subject.id).mapIndexedNotNull { courseIndex, course ->
+            getSubjects().map { subject ->
+                val courses = getCourses(subject.id).mapIndexed { courseIndex, course ->
                     val lessons = getLessons(subject.id, course.id)
                         .sortedBy { it.order }
                         .mapIndexed { lessonIndex, lesson ->
-                            val mediaIndex = (subjectIndex + courseIndex + lessonIndex) % videoIds.size
+                            val mediaIndex =
+                                if (videoIds.isEmpty()) 0
+                                else (courseIndex + lessonIndex) % videoIds.size
+
                             StudentFeedLesson(
                                 lessonId = lesson.id,
                                 lessonTitle = lesson.title.ifBlank { "Lesson ${lessonIndex + 1}" },
@@ -117,29 +123,21 @@ class FirestoreRepository {
                             )
                         }
 
-                    if (lessons.isEmpty()) {
-                        null
-                    } else {
-                        StudentFeedCourse(
-                            subjectId = subject.id,
-                            subjectName = subject.name,
-                            courseId = course.id,
-                            courseTitle = course.title,
-                            courseDescription = course.description,
-                            lessons = lessons
-                        )
-                    }
-                }
-
-                if (courses.isEmpty()) {
-                    null
-                } else {
-                    StudentFeedSubject(
+                    StudentFeedCourse(
                         subjectId = subject.id,
                         subjectName = subject.name,
-                        courses = courses
+                        courseId = course.id,
+                        courseTitle = course.title,
+                        courseDescription = course.description,
+                        lessons = lessons
                     )
                 }
+
+                StudentFeedSubject(
+                    subjectId = subject.id,
+                    subjectName = subject.name,
+                    courses = courses
+                )
             }
         } catch (e: Exception) {
             emptyList()

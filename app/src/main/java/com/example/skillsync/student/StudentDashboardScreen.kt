@@ -95,6 +95,7 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
     var selectedSubjectIndex by remember { mutableIntStateOf(0) }
     var destination by remember { mutableStateOf<StudentDestination>(StudentDestination.Feed) }
     var feedStartPage by remember { mutableIntStateOf(0) }
+    var selectedCourseIndex by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(Unit) {
         loading = true
@@ -113,9 +114,14 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
             else -> {
                 val safeSubjectIndex = selectedSubjectIndex.coerceIn(0, subjects.lastIndex)
                 val activeSubject = subjects[safeSubjectIndex]
+                val safeCourseIndex = if (activeSubject.courses.isEmpty()) 0
+                else selectedCourseIndex.coerceIn(0, activeSubject.courses.lastIndex)
                 val activeProfileCourseIndex = when (val current = destination) {
-                    is StudentDestination.Profile -> current.courseIndex.coerceIn(0, activeSubject.courses.lastIndex)
-                    else -> 0
+                    is StudentDestination.Profile -> {
+                        if (activeSubject.courses.isEmpty()) 0
+                        else current.courseIndex.coerceIn(0, activeSubject.courses.lastIndex)
+                    }
+                    else -> safeCourseIndex
                 }
 
                 Scaffold(
@@ -130,7 +136,7 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
                             NavigationBarItem(
                                 selected = destination is StudentDestination.Profile,
                                 onClick = {
-                                    destination = StudentDestination.Profile(safeSubjectIndex, activeProfileCourseIndex)
+                                    destination = StudentDestination.Profile(safeSubjectIndex, safeCourseIndex)
                                 },
                                 icon = { Icon(Icons.Default.Person, contentDescription = "Course") },
                                 label = { Text("Course") }
@@ -143,13 +149,20 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
                             modifier = Modifier.padding(innerPadding),
                             subjects = subjects,
                             selectedSubjectIndex = safeSubjectIndex,
+                            selectedCourseIndex = safeCourseIndex,
                             startPage = feedStartPage,
                             onSelectSubject = { newIndex ->
                                 selectedSubjectIndex = newIndex
+                                selectedCourseIndex = 0
+                                feedStartPage = 0
+                            },
+                            onSelectCourse = { newCourseIndex ->
+                                selectedCourseIndex = newCourseIndex
                                 feedStartPage = 0
                             },
                             onOpenProfile = { subjectIndex, courseIndex ->
                                 selectedSubjectIndex = subjectIndex
+                                selectedCourseIndex = courseIndex
                                 destination = StudentDestination.Profile(subjectIndex, courseIndex)
                             }
                         )
@@ -162,14 +175,17 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
                             onBack = { destination = StudentDestination.Feed },
                             onOpenLesson = { subjectIndex, lessonIndex ->
                                 selectedSubjectIndex = subjectIndex
-                                feedStartPage = findSubjectFeedPageIndex(subjects[subjectIndex], lessonIndex, current.courseIndex)
+                                selectedCourseIndex = current.courseIndex
+                                feedStartPage = lessonIndex.coerceAtLeast(0)
                                 destination = StudentDestination.Feed
                             },
                             onSwitchSubject = { newSubjectIndex ->
                                 selectedSubjectIndex = newSubjectIndex
+                                selectedCourseIndex = 0
                                 destination = StudentDestination.Profile(newSubjectIndex, 0)
                             },
                             onSwitchCourse = { newCourseIndex ->
+                                selectedCourseIndex = newCourseIndex
                                 destination = StudentDestination.Profile(selectedSubjectIndex, newCourseIndex)
                             },
                             onLogout = onLogout
@@ -209,25 +225,45 @@ private fun StudentFeedScreen(
     modifier: Modifier = Modifier,
     subjects: List<StudentFeedSubject>,
     selectedSubjectIndex: Int,
+    selectedCourseIndex: Int,
     startPage: Int,
     onSelectSubject: (Int) -> Unit,
+    onSelectCourse: (Int) -> Unit,
     onOpenProfile: (Int, Int) -> Unit
 ) {
     val subject = subjects[selectedSubjectIndex.coerceIn(0, subjects.lastIndex)]
-    val lessonPages = remember(subject) {
-        buildList {
-            subject.courses.forEachIndexed { courseIndex, course ->
-                course.lessons.sortedBy { it.lessonOrder }.forEachIndexed { lessonIndex, lesson ->
-                    add(SubjectFeedPage(courseIndex, lessonIndex, course, lesson))
-                }
+    val safeCourseIndex = if (subject.courses.isEmpty()) 0 else selectedCourseIndex.coerceIn(0, subject.courses.lastIndex)
+    val activeCourse = subject.courses.getOrNull(safeCourseIndex)
+    val lessonPages = remember(subject.subjectId, safeCourseIndex, activeCourse) {
+        activeCourse
+            ?.lessons
+            ?.sortedBy { it.lessonOrder }
+            ?.mapIndexed { lessonIndex, lesson ->
+                SubjectFeedPage(safeCourseIndex, lessonIndex, activeCourse, lesson)
             }
+            .orEmpty()
+    }
+
+    if (subject.courses.isEmpty()) {
+        Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("No courses found in this subject")
         }
+        return
     }
 
     if (lessonPages.isEmpty()) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("No lessons found in this subject")
+            Text("No lessons found in this course")
         }
+
+        SubjectTabs(
+            subjects = subjects,
+            selectedSubjectIndex = selectedSubjectIndex,
+            onSelectSubject = onSelectSubject,
+            modifier = Modifier
+                .statusBarsPadding()
+                .padding(top = 8.dp, start = 12.dp, end = 12.dp)
+        )
         return
     }
 
@@ -235,7 +271,25 @@ private fun StudentFeedScreen(
     val quizStateMap = remember { mutableStateMapOf<String, QuizUiState>() }
 
     Box(modifier = modifier.fillMaxSize()) {
-        key(subject.subjectId, safeStartPage) {
+        SubjectTabs(
+            subjects = subjects,
+            selectedSubjectIndex = selectedSubjectIndex,
+            onSelectSubject = onSelectSubject,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .statusBarsPadding()
+                .padding(top = 8.dp, start = 12.dp, end = 12.dp)
+        )
+        CourseTabs(
+            courses = subject.courses,
+            selectedCourseIndex = safeCourseIndex,
+            onSelectCourse = onSelectCourse,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .statusBarsPadding()
+                .padding(top = 62.dp, start = 12.dp, end = 12.dp)
+        )
+        key(subject.subjectId, safeCourseIndex, safeStartPage) {
             val pagerState = rememberPagerState(initialPage = safeStartPage, pageCount = { lessonPages.size })
             VerticalPager(
                 state = pagerState,
@@ -251,16 +305,44 @@ private fun StudentFeedScreen(
                 )
             }
         }
+    }
+}
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CourseTabs(
+    courses: List<StudentFeedCourse>,
+    selectedCourseIndex: Int,
+    onSelectCourse: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (courses.isEmpty()) return
 
-        SubjectTabs(
-            subjects = subjects,
-            selectedSubjectIndex = selectedSubjectIndex,
-            onSelectSubject = onSelectSubject,
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .statusBarsPadding()
-                .padding(top = 8.dp, start = 12.dp, end = 12.dp)
+    Column(modifier = modifier.fillMaxWidth()) {
+        Text(
+            text = "Courses",
+            color = Color.White,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(bottom = 8.dp)
         )
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            courses.forEachIndexed { index, course ->
+                FilterChip(
+                    selected = index == selectedCourseIndex,
+                    onClick = { onSelectCourse(index) },
+                    label = {
+                        Text(
+                            text = course.courseTitle,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                )
+            }
+        }
     }
 }
 
@@ -641,21 +723,32 @@ private fun StudentProfileScreen(
             onSwitchSubject = onSwitchSubject
         )
 
-        if (subject.courses.size > 1) {
-            FlowRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                subject.courses.forEachIndexed { index, item ->
-                    FilterChip(
-                        selected = index == safeCourseIndex,
-                        onClick = { onSwitchCourse(index) },
-                        label = { Text(item.courseTitle, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                    )
-                }
+        Text(
+            text = "Choose course",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+        )
+
+        FlowRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            subject.courses.forEachIndexed { index, item ->
+                FilterChip(
+                    selected = index == safeCourseIndex,
+                    onClick = { onSwitchCourse(index) },
+                    label = {
+                        Text(
+                            item.courseTitle,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                )
             }
         }
 
@@ -756,13 +849,3 @@ private class QuizUiState(
 }
 
 
-private fun findSubjectFeedPageIndex(subject: StudentFeedSubject, lessonIndex: Int, courseIndex: Int): Int {
-    var page = 0
-    subject.courses.forEachIndexed { currentCourseIndex, course ->
-        if (currentCourseIndex == courseIndex) {
-            return page + lessonIndex.coerceIn(0, (course.lessons.size - 1).coerceAtLeast(0))
-        }
-        page += course.lessons.size
-    }
-    return 0
-}
