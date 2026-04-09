@@ -5,7 +5,8 @@ data class UserProfile(
     val email: String = "",
     val xp: Int = 0,
     val level: Int = 1,
-    val streak: Int = 0,
+    val currentStreak: Int = 0,
+    val highestStreak: Int = 0,
     val watchLaterCount: Int = 0
 )
 

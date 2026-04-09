@@ -27,6 +27,24 @@ class FirestoreRepository {
 
     private fun currentUserId(): String? = Firebase.auth.currentUser?.uid
 
+    private suspend fun ensureUserProfileDocument() {
+        val user = Firebase.auth.currentUser ?: return
+        val ref = db.collection("users").document(user.uid)
+        val snapshot = ref.get().await()
+        if (!snapshot.exists()) {
+            ref.set(
+                mapOf(
+                    "email" to user.email.orEmpty(),
+                    "xp" to 0,
+                    "currentStreak" to 0,
+                    "highestStreak" to 0,
+                    "watchLaterCount" to 0,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+        }
+    }
+
     suspend fun getSubjects(): List<Subject> {
         return try {
             val snapshot = db.collection("subjects").get().await()
@@ -160,7 +178,9 @@ class FirestoreRepository {
 
     suspend fun toggleWatchLater(lesson: StudentFeedLesson, course: StudentFeedCourse): Boolean {
         val userId = currentUserId() ?: return false
-        val ref = db.collection("users").document(userId)
+        ensureUserProfileDocument()
+        val userRef = db.collection("users").document(userId)
+        val ref = userRef
             .collection("watchLater")
             .document(lesson.lessonId)
 
@@ -168,6 +188,12 @@ class FirestoreRepository {
             val existing = ref.get().await()
             if (existing.exists()) {
                 ref.delete().await()
+                userRef.update(
+                    mapOf(
+                        "watchLaterCount" to FieldValue.increment(-1),
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    )
+                ).await()
                 false
             } else {
                 val record = WatchLaterLesson(
@@ -189,6 +215,12 @@ class FirestoreRepository {
                     savedAt = System.currentTimeMillis()
                 )
                 ref.set(record).await()
+                userRef.update(
+                    mapOf(
+                        "watchLaterCount" to FieldValue.increment(1),
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    )
+                ).await()
                 true
             }
         } catch (e: Exception) {
@@ -290,19 +322,37 @@ class FirestoreRepository {
         }
     }
 
+    private fun calculateLevelFromXp(xp: Int): Int {
+        return (xp / 100).coerceAtLeast(0) + 1
+    }
+
     suspend fun getUserProfileModel(): UserProfile {
         val user = Firebase.auth.currentUser ?: return UserProfile()
-        val xp = getUserXp()
-        val watchLaterCount = getWatchLaterLessons().size
-        val level = (xp / 100) + 1
+        ensureUserProfileDocument()
 
-        return UserProfile(
-            uid = user.uid,
-            email = user.email.orEmpty(),
-            xp = xp,
-            level = level,
-            watchLaterCount = watchLaterCount
-        )
+        return try {
+            val doc = db.collection("users").document(user.uid).get().await()
+            val xp = (doc.getLong("xp") ?: 0L).toInt()
+            val currentStreak = (doc.getLong("currentStreak") ?: 0L).toInt()
+            val highestStreak = (doc.getLong("highestStreak") ?: 0L).toInt()
+            val watchLaterCount = (doc.getLong("watchLaterCount") ?: 0L).toInt()
+            val level = calculateLevelFromXp(xp)
+
+            UserProfile(
+                uid = user.uid,
+                email = user.email.orEmpty(),
+                xp = xp,
+                level = level,
+                currentStreak = currentStreak,
+                highestStreak = highestStreak,
+                watchLaterCount = watchLaterCount
+            )
+        } catch (e: Exception) {
+            UserProfile(
+                uid = user.uid,
+                email = user.email.orEmpty()
+            )
+        }
     }
 
     suspend fun getUserProfile(): Map<String, Any> {
@@ -317,6 +367,7 @@ class FirestoreRepository {
 
     suspend fun getUserXp(): Int {
         val userId = currentUserId() ?: return 0
+        ensureUserProfileDocument()
         return try {
             val doc = db.collection("users").document(userId).get().await()
             (doc.getLong("xp") ?: 0L).toInt()
@@ -327,11 +378,80 @@ class FirestoreRepository {
 
     suspend fun addXp(amount: Int) {
         val userId = currentUserId() ?: return
+        ensureUserProfileDocument()
         try {
-            db.collection("users").document(userId)
-                .update("xp", FieldValue.increment(amount.toLong()))
-                .await()
+            val userRef = db.collection("users").document(userId)
+            userRef.update(
+                mapOf(
+                    "xp" to FieldValue.increment(amount.toLong()),
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+
+            val refreshed = userRef.get().await()
+            val newXp = (refreshed.getLong("xp") ?: 0L).toInt()
+            userRef.update("level", calculateLevelFromXp(newXp)).await()
         } catch (_: Exception) {
+        }
+    }
+
+    suspend fun getCurrentStreak(): Int {
+        val userId = currentUserId() ?: return 0
+        ensureUserProfileDocument()
+        return try {
+            val doc = db.collection("users").document(userId).get().await()
+            (doc.getLong("currentStreak") ?: 0L).toInt()
+        } catch (e: Exception) {
+            0
+        }
+    }
+
+    suspend fun recordQuizAnswer(isCorrect: Boolean, baseXp: Int = 10): UserProfile {
+        val userId = currentUserId() ?: return UserProfile()
+        ensureUserProfileDocument()
+        val userRef = db.collection("users").document(userId)
+
+        return try {
+            val doc = userRef.get().await()
+            val currentXp = (doc.getLong("xp") ?: 0L).toInt()
+            val currentStreak = (doc.getLong("currentStreak") ?: 0L).toInt()
+            val highestStreak = (doc.getLong("highestStreak") ?: 0L).toInt()
+            val watchLaterCount = (doc.getLong("watchLaterCount") ?: 0L).toInt()
+            val email = doc.getString("email").orEmpty().ifBlank { Firebase.auth.currentUser?.email.orEmpty() }
+
+            val newStreak = if (isCorrect) currentStreak + 1 else 0
+            val multiplier = when {
+                newStreak >= 5 -> 2.0
+                newStreak >= 3 -> 1.5
+                newStreak >= 2 -> 1.2
+                else -> 1.0
+            }
+            val xpEarned = if (isCorrect) (baseXp * multiplier).toInt() else 0
+            val newXp = currentXp + xpEarned
+            val newHighestStreak = maxOf(highestStreak, newStreak)
+            val newLevel = calculateLevelFromXp(newXp)
+
+            userRef.update(
+                mapOf(
+                    "xp" to newXp,
+                    "level" to newLevel,
+                    "currentStreak" to newStreak,
+                    "highestStreak" to newHighestStreak,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+
+            UserProfile(
+                uid = userId,
+                email = email,
+                xp = newXp,
+                level = newLevel,
+                currentStreak = newStreak,
+                highestStreak = newHighestStreak,
+                watchLaterCount = watchLaterCount
+            )
+        } catch (e: Exception) {
+            getUserProfileModel()
         }
     }
 

@@ -91,13 +91,15 @@ import kotlinx.coroutines.withContext
 
 private sealed interface StudentDestination {
     data object Feed : StudentDestination
-    data class Profile(val subjectIndex: Int, val courseIndex: Int) : StudentDestination
+    data class Courses(val subjectIndex: Int, val courseIndex: Int) : StudentDestination
+    data object Profile : StudentDestination
 }
 
 @Composable
 fun StudentDashboardScreen(onLogout: () -> Unit) {
     val repo = remember { FirestoreRepository() }
     val userEmail = FirebaseAuth.getInstance().currentUser?.email.orEmpty()
+    val currentUser = FirebaseAuth.getInstance().currentUser
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -107,6 +109,16 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
     var destination by remember { mutableStateOf<StudentDestination>(StudentDestination.Feed) }
     var feedStartPage by remember { mutableIntStateOf(0) }
     var selectedCourseIndex by remember { mutableIntStateOf(0) }
+    val savedLessonsCount = remember(subjects) {
+        subjects
+            .flatMap { it.courses }
+            .flatMap { it.lessons }
+            .count { it.isSaved }
+    }
+    val totalCoursesCount = remember(subjects) { subjects.sumOf { it.courses.size } }
+    val totalLessonsCount = remember(subjects) {
+        subjects.flatMap { it.courses }.sumOf { it.lessons.size }
+    }
 
     suspend fun refreshSubjects(showLoading: Boolean = false) {
         if (showLoading) loading = true
@@ -140,8 +152,8 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
                 val activeSubject = subjects[safeSubjectIndex]
                 val safeCourseIndex = if (activeSubject.courses.isEmpty()) 0
                 else selectedCourseIndex.coerceIn(0, activeSubject.courses.lastIndex)
-                val activeProfileCourseIndex = when (val current = destination) {
-                    is StudentDestination.Profile -> {
+                val activeCoursesScreenCourseIndex = when (val current = destination) {
+                    is StudentDestination.Courses -> {
                         if (activeSubject.courses.isEmpty()) 0
                         else current.courseIndex.coerceIn(0, activeSubject.courses.lastIndex)
                     }
@@ -159,12 +171,18 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
                                 label = { Text("Feed") }
                             )
                             NavigationBarItem(
-                                selected = destination is StudentDestination.Profile,
+                                selected = destination is StudentDestination.Courses,
                                 onClick = {
-                                    destination = StudentDestination.Profile(safeSubjectIndex, safeCourseIndex)
+                                    destination = StudentDestination.Courses(safeSubjectIndex, safeCourseIndex)
                                 },
-                                icon = { Icon(Icons.Default.Person, contentDescription = "Course") },
-                                label = { Text("Course") }
+                                icon = { Icon(Icons.Default.Person, contentDescription = "Courses") },
+                                label = { Text("Courses") }
+                            )
+                            NavigationBarItem(
+                                selected = destination is StudentDestination.Profile,
+                                onClick = { destination = StudentDestination.Profile },
+                                icon = { Icon(Icons.Default.Bookmark, contentDescription = "Profile") },
+                                label = { Text("Profile") }
                             )
                         }
                     }
@@ -188,7 +206,7 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
                             onOpenProfile = { subjectIndex, courseIndex ->
                                 selectedSubjectIndex = subjectIndex
                                 selectedCourseIndex = courseIndex
-                                destination = StudentDestination.Profile(subjectIndex, courseIndex)
+                                destination = StudentDestination.Courses(subjectIndex, courseIndex)
                             },
                             onToggleWatchLater = { lesson, course ->
                                 withContext(Dispatchers.IO) {
@@ -210,7 +228,7 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
                             }
                         )
 
-                        is StudentDestination.Profile -> StudentProfileScreen(
+                        is StudentDestination.Courses -> StudentProfileScreen(
                             modifier = Modifier.padding(innerPadding),
                             subjects = subjects,
                             subjectIndex = current.subjectIndex.coerceIn(0, subjects.lastIndex),
@@ -225,12 +243,25 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
                             onSwitchSubject = { newSubjectIndex ->
                                 selectedSubjectIndex = newSubjectIndex
                                 selectedCourseIndex = 0
-                                destination = StudentDestination.Profile(newSubjectIndex, 0)
+                                destination = StudentDestination.Courses(newSubjectIndex, 0)
                             },
                             onSwitchCourse = { newCourseIndex ->
                                 selectedCourseIndex = newCourseIndex
-                                destination = StudentDestination.Profile(selectedSubjectIndex, newCourseIndex)
+                                destination = StudentDestination.Courses(selectedSubjectIndex, newCourseIndex)
                             },
+                            onLogout = onLogout
+                        )
+
+                        StudentDestination.Profile -> StudentAccountProfileScreen(
+                            modifier = Modifier.padding(innerPadding),
+                            userEmail = userEmail,
+                            displayName = currentUser?.displayName.orEmpty(),
+                            savedLessonsCount = savedLessonsCount,
+                            totalCoursesCount = totalCoursesCount,
+                            totalLessonsCount = totalLessonsCount,
+                            level = 1,
+                            xp = 0,
+                            streak = 0,
                             onLogout = onLogout
                         )
                     }
@@ -796,7 +827,7 @@ private fun StudentProfileScreen(
             }
 
             Text(
-                text = course?.courseTitle.orEmpty(),
+                text = "Courses",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f)
@@ -989,3 +1020,139 @@ private class QuizUiState(
 }
 
 
+
+
+@Composable
+private fun StudentAccountProfileScreen(
+    modifier: Modifier = Modifier,
+    userEmail: String,
+    displayName: String,
+    savedLessonsCount: Int,
+    totalCoursesCount: Int,
+    totalLessonsCount: Int,
+    level: Int,
+    xp: Int,
+    streak: Int,
+    onLogout: () -> Unit
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        Text(
+            text = "Profile",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold
+        )
+
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 16.dp),
+            shape = RoundedCornerShape(20.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Box(
+                    modifier = Modifier
+                        .size(72.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = (displayName.ifBlank { userEmail }.take(1).uppercase()),
+                        color = Color.White,
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Text(
+                    text = if (displayName.isBlank()) "Student" else displayName,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = 12.dp)
+                )
+
+                Text(
+                    text = userEmail,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
+
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            userScrollEnabled = false
+        ) {
+            item {
+                ProfileStatCard(title = "Level", value = level.toString())
+            }
+            item {
+                ProfileStatCard(title = "XP", value = xp.toString())
+            }
+            item {
+                ProfileStatCard(title = "Streak", value = streak.toString())
+            }
+            item {
+                ProfileStatCard(title = "Saved", value = savedLessonsCount.toString())
+            }
+            item {
+                ProfileStatCard(title = "Courses", value = totalCoursesCount.toString())
+            }
+            item {
+                ProfileStatCard(title = "Lessons", value = totalLessonsCount.toString())
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        Button(
+            onClick = {
+                FirebaseAuth.getInstance().signOut()
+                onLogout()
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Logout")
+        }
+    }
+}
+
+@Composable
+private fun ProfileStatCard(
+    title: String,
+    value: String
+) {
+    Card(
+        shape = RoundedCornerShape(18.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 6.dp)
+            )
+        }
+    }
+}
