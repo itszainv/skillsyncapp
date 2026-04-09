@@ -9,6 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
@@ -30,11 +31,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -47,6 +51,9 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -58,6 +65,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -78,6 +86,7 @@ import com.example.skillsync.models.StudentQuiz
 import com.example.skillsync.models.StudentQuizType
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private sealed interface StudentDestination {
@@ -89,6 +98,8 @@ private sealed interface StudentDestination {
 fun StudentDashboardScreen(onLogout: () -> Unit) {
     val repo = remember { FirestoreRepository() }
     val userEmail = FirebaseAuth.getInstance().currentUser?.email.orEmpty()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     var loading by remember { mutableStateOf(true) }
     var subjects by remember { mutableStateOf<List<StudentFeedSubject>>(emptyList()) }
@@ -97,10 +108,23 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
     var feedStartPage by remember { mutableIntStateOf(0) }
     var selectedCourseIndex by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(Unit) {
-        loading = true
+    suspend fun refreshSubjects(showLoading: Boolean = false) {
+        if (showLoading) loading = true
         subjects = withContext(Dispatchers.IO) { repo.getStudentFeedSubjects() }
-        loading = false
+        if (subjects.isNotEmpty()) {
+            selectedSubjectIndex = selectedSubjectIndex.coerceIn(0, subjects.lastIndex)
+            val activeSubject = subjects[selectedSubjectIndex]
+            selectedCourseIndex = if (activeSubject.courses.isEmpty()) 0
+            else selectedCourseIndex.coerceIn(0, activeSubject.courses.lastIndex)
+        } else {
+            selectedSubjectIndex = 0
+            selectedCourseIndex = 0
+        }
+        if (showLoading) loading = false
+    }
+
+    LaunchedEffect(Unit) {
+        refreshSubjects(showLoading = true)
     }
 
     Surface(modifier = Modifier.fillMaxSize()) {
@@ -125,6 +149,7 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
                 }
 
                 Scaffold(
+                    snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
                     bottomBar = {
                         NavigationBar {
                             NavigationBarItem(
@@ -164,6 +189,24 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
                                 selectedSubjectIndex = subjectIndex
                                 selectedCourseIndex = courseIndex
                                 destination = StudentDestination.Profile(subjectIndex, courseIndex)
+                            },
+                            onToggleWatchLater = { lesson, course ->
+                                withContext(Dispatchers.IO) {
+                                    repo.toggleWatchLater(lesson, course)
+                                }
+                            },
+                            onWatchLaterMessage = { isSavedNow ->
+                                snackbarHostState.showSnackbar(
+                                    message = if (isSavedNow) {
+                                        "Lesson saved to \"Watch Later\""
+                                    } else {
+                                        "Lesson removed from \"Watch Later\""
+                                    },
+                                    duration = SnackbarDuration.Short
+                                )
+                            },
+                            onRefreshAfterWatchLater = {
+                                refreshSubjects()
                             }
                         )
 
@@ -229,7 +272,10 @@ private fun StudentFeedScreen(
     startPage: Int,
     onSelectSubject: (Int) -> Unit,
     onSelectCourse: (Int) -> Unit,
-    onOpenProfile: (Int, Int) -> Unit
+    onOpenProfile: (Int, Int) -> Unit,
+    onToggleWatchLater: suspend (StudentFeedLesson, StudentFeedCourse) -> Boolean,
+    onWatchLaterMessage: suspend (Boolean) -> Unit,
+    onRefreshAfterWatchLater: suspend () -> Unit
 ) {
     val subject = subjects[selectedSubjectIndex.coerceIn(0, subjects.lastIndex)]
     val safeCourseIndex = if (subject.courses.isEmpty()) 0 else selectedCourseIndex.coerceIn(0, subject.courses.lastIndex)
@@ -264,11 +310,20 @@ private fun StudentFeedScreen(
                 .statusBarsPadding()
                 .padding(top = 8.dp, start = 12.dp, end = 12.dp)
         )
+        CourseTabs(
+            courses = subject.courses,
+            selectedCourseIndex = safeCourseIndex,
+            onSelectCourse = onSelectCourse,
+            modifier = Modifier
+                .statusBarsPadding()
+                .padding(top = 62.dp, start = 12.dp, end = 12.dp)
+        )
         return
     }
 
     val safeStartPage = startPage.coerceIn(0, lessonPages.lastIndex)
     val quizStateMap = remember { mutableStateMapOf<String, QuizUiState>() }
+    val scope = rememberCoroutineScope()
 
     Box(modifier = modifier.fillMaxSize()) {
         SubjectTabs(
@@ -301,7 +356,14 @@ private fun StudentFeedScreen(
                     item = item,
                     subjectName = subject.subjectName,
                     quizState = quizState,
-                    onOpenProfile = { onOpenProfile(selectedSubjectIndex, item.courseIndex) }
+                    onOpenProfile = { onOpenProfile(selectedSubjectIndex, item.courseIndex) },
+                    onToggleWatchLater = { lesson, course ->
+                        scope.launch {
+                            val isSavedNow = onToggleWatchLater(lesson, course)
+                            onRefreshAfterWatchLater()
+                            onWatchLaterMessage(isSavedNow)
+                        }
+                    }
                 )
             }
         }
@@ -382,7 +444,8 @@ private fun LessonFeedPage(
     item: SubjectFeedPage,
     subjectName: String,
     quizState: QuizUiState,
-    onOpenProfile: () -> Unit
+    onOpenProfile: () -> Unit,
+    onToggleWatchLater: (StudentFeedLesson, StudentFeedCourse) -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         VideoBackground(videoResId = item.lesson.videoResId)
@@ -449,13 +512,56 @@ private fun LessonFeedPage(
                 )
             }
 
-            Button(
-                onClick = { quizState.isVisible = true },
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 14.dp)
+                    .padding(top = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Test knowledge")
+                Button(
+                    onClick = { quizState.isVisible = true },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Test knowledge")
+                }
+
+                OutlinedButton(
+                    onClick = { onToggleWatchLater(item.lesson, item.course) },
+                    modifier = Modifier
+                        .height(40.dp)
+                        .aspectRatio(1f),
+                    shape = CircleShape,
+                    contentPadding = PaddingValues(0.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = if (item.lesson.isSaved) {
+                            Color.White.copy(alpha = 0.22f)
+                        } else {
+                            Color.Black.copy(alpha = 0.16f)
+                        },
+                        contentColor = Color.White
+                    )
+                ) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (item.lesson.isSaved) {
+                                Icons.Default.Bookmark
+                            } else {
+                                Icons.Default.BookmarkBorder
+                            },
+                            contentDescription = if (item.lesson.isSaved) {
+                                "Remove from Watch Later"
+                            } else {
+                                "Save to Watch Later"
+                            },
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
             }
         }
 
@@ -612,16 +718,24 @@ private fun QuizOverlay(
 
 @Composable
 private fun VideoBackground(videoResId: Int) {
+    var isPaused by remember(videoResId) { mutableStateOf(false) }
+
     AndroidView(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .clickable {
+                isPaused = !isPaused
+            },
         factory = { context ->
             VideoView(context).apply {
                 val uri = Uri.parse("android.resource://${context.packageName}/$videoResId")
+                tag = videoResId
                 setVideoURI(uri)
                 setOnPreparedListener { mediaPlayer ->
                     mediaPlayer.isLooping = true
-                    mediaPlayer.setVolume(0f, 0f)
-                    start()
+                    if (!isPaused) {
+                        start()
+                    }
                 }
             }
         },
@@ -632,7 +746,18 @@ private fun VideoBackground(videoResId: Int) {
                 videoView.setVideoURI(uri)
                 videoView.setOnPreparedListener { mediaPlayer ->
                     mediaPlayer.isLooping = true
-                    mediaPlayer.setVolume(0f, 0f)
+                    if (!isPaused) {
+                        videoView.start()
+                    }
+                }
+            }
+
+            if (isPaused) {
+                if (videoView.isPlaying) {
+                    videoView.pause()
+                }
+            } else {
+                if (!videoView.isPlaying) {
                     videoView.start()
                 }
             }
@@ -655,9 +780,9 @@ private fun StudentProfileScreen(
 ) {
     val safeSubjectIndex = subjectIndex.coerceIn(0, subjects.lastIndex)
     val subject = subjects[safeSubjectIndex]
-    val safeCourseIndex = courseIndex.coerceIn(0, subject.courses.lastIndex)
-    val course = subject.courses[safeCourseIndex]
-    val orderedLessons = course.lessons.sortedBy { it.lessonOrder }
+    val safeCourseIndex = if (subject.courses.isEmpty()) 0 else courseIndex.coerceIn(0, subject.courses.lastIndex)
+    val course = subject.courses.getOrNull(safeCourseIndex)
+    val orderedLessons = course?.lessons?.sortedBy { it.lessonOrder }.orEmpty()
 
     Column(modifier = modifier.fillMaxSize()) {
         Row(
@@ -671,7 +796,7 @@ private fun StudentProfileScreen(
             }
 
             Text(
-                text = course.courseTitle,
+                text = course?.courseTitle.orEmpty(),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f)
@@ -694,7 +819,7 @@ private fun StudentProfileScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = course.courseTitle.take(1).uppercase(),
+                    text = course?.courseTitle?.take(1)?.uppercase().orEmpty(),
                     color = Color.White,
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold
@@ -702,7 +827,7 @@ private fun StudentProfileScreen(
             }
 
             Text(
-                text = course.courseTitle,
+                text = course?.courseTitle.orEmpty(),
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(top = 12.dp)
@@ -712,8 +837,8 @@ private fun StudentProfileScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp)
             )
-            if (course.courseDescription.isNotBlank()) {
-                Text(text = course.courseDescription, modifier = Modifier.padding(top = 8.dp))
+            if (!course?.courseDescription.isNullOrBlank()) {
+                Text(text = course?.courseDescription.orEmpty(), modifier = Modifier.padding(top = 8.dp))
             }
         }
 
@@ -752,50 +877,65 @@ private fun StudentProfileScreen(
             }
         }
 
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(3),
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            itemsIndexed(orderedLessons) { lessonIndex, lesson ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(1f)
-                        .clip(RoundedCornerShape(12.dp))
-                        .clickable { onOpenLesson(safeSubjectIndex, lessonIndex) }
-                ) {
-                    Image(
-                        painter = painterResource(id = lesson.thumbnailResId),
-                        contentDescription = lesson.lessonTitle,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-
+        if (orderedLessons.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = if (subject.subjectId == "__watch_later__") {
+                        "No saved lessons yet"
+                    } else {
+                        "No lessons available yet"
+                    }
+                )
+            }
+        } else {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(3),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                itemsIndexed(orderedLessons) { lessonIndex, lesson ->
                     Box(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    listOf(Color.Transparent, Color.Transparent, Color(0xAA000000))
-                                )
-                            )
-                    )
+                            .fillMaxWidth()
+                            .aspectRatio(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { onOpenLesson(safeSubjectIndex, lessonIndex) }
+                    ) {
+                        Image(
+                            painter = painterResource(id = lesson.thumbnailResId),
+                            contentDescription = lesson.lessonTitle,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
 
-                    Text(
-                        text = lesson.lessonTitle,
-                        color = Color.White,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(8.dp)
-                    )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(Color.Transparent, Color.Transparent, Color(0xAA000000))
+                                    )
+                                )
+                        )
+
+                        Text(
+                            text = lesson.lessonTitle,
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(8.dp)
+                        )
+                    }
                 }
             }
         }

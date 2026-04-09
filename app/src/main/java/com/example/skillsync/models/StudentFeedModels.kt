@@ -24,7 +24,8 @@ data class StudentFeedLesson(
     val lessonOrder: Int,
     val quiz: StudentQuiz,
     @RawRes val videoResId: Int,
-    @DrawableRes val thumbnailResId: Int
+    @DrawableRes val thumbnailResId: Int,
+    val isSaved: Boolean = false
 )
 
 data class StudentQuiz(

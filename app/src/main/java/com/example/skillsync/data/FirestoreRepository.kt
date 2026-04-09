@@ -8,6 +8,8 @@ import com.example.skillsync.models.StudentFeedSubject
 import com.example.skillsync.models.StudentQuiz
 import com.example.skillsync.models.StudentQuizType
 import com.example.skillsync.models.Subject
+import com.example.skillsync.models.UserProfile
+import com.example.skillsync.models.WatchLaterLesson
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.FieldValue
@@ -17,6 +19,13 @@ import kotlinx.coroutines.tasks.await
 
 class FirestoreRepository {
     private val db: FirebaseFirestore = Firebase.firestore
+
+    companion object {
+        private const val WATCH_LATER_SUBJECT_ID = "__watch_later__"
+        private const val WATCH_LATER_COURSE_ID = "__watch_later_course__"
+    }
+
+    private fun currentUserId(): String? = Firebase.auth.currentUser?.uid
 
     suspend fun getSubjects(): List<Subject> {
         return try {
@@ -104,14 +113,16 @@ class FirestoreRepository {
         )
 
         return try {
-            getSubjects().map { subject ->
+            val savedLessons = getWatchLaterLessons()
+            val savedLessonIds = savedLessons.map { it.lessonId }.toSet()
+
+            val regularSubjects = getSubjects().mapIndexed { subjectIndex, subject ->
                 val courses = getCourses(subject.id).mapIndexed { courseIndex, course ->
                     val lessons = getLessons(subject.id, course.id)
                         .sortedBy { it.order }
                         .mapIndexed { lessonIndex, lesson ->
-                            val mediaIndex =
-                                if (videoIds.isEmpty()) 0
-                                else (courseIndex + lessonIndex) % videoIds.size
+                            val mediaIndex = if (videoIds.isEmpty()) 0
+                            else (subjectIndex + courseIndex + lessonIndex) % videoIds.size
 
                             StudentFeedLesson(
                                 lessonId = lesson.id,
@@ -119,7 +130,8 @@ class FirestoreRepository {
                                 lessonOrder = lesson.order,
                                 quiz = buildStudentQuiz(lesson),
                                 videoResId = videoIds[mediaIndex],
-                                thumbnailResId = thumbnailIds[mediaIndex % thumbnailIds.size]
+                                thumbnailResId = thumbnailIds[mediaIndex % thumbnailIds.size],
+                                isSaved = lesson.id in savedLessonIds
                             )
                         }
 
@@ -139,9 +151,85 @@ class FirestoreRepository {
                     courses = courses
                 )
             }
+
+            regularSubjects + buildWatchLaterSubject(savedLessons)
         } catch (e: Exception) {
             emptyList()
         }
+    }
+
+    suspend fun toggleWatchLater(lesson: StudentFeedLesson, course: StudentFeedCourse): Boolean {
+        val userId = currentUserId() ?: return false
+        val ref = db.collection("users").document(userId)
+            .collection("watchLater")
+            .document(lesson.lessonId)
+
+        return try {
+            val existing = ref.get().await()
+            if (existing.exists()) {
+                ref.delete().await()
+                false
+            } else {
+                val record = WatchLaterLesson(
+                    lessonId = lesson.lessonId,
+                    subjectId = course.subjectId,
+                    subjectName = course.subjectName,
+                    courseId = course.courseId,
+                    courseTitle = course.courseTitle,
+                    courseDescription = course.courseDescription,
+                    lessonTitle = lesson.lessonTitle,
+                    lessonOrder = lesson.lessonOrder,
+                    question = lesson.quiz.question,
+                    options = lesson.quiz.options,
+                    correctAnswerIndex = lesson.quiz.correctAnswerIndex,
+                    explanation = lesson.quiz.explanation,
+                    quizType = lesson.quiz.type.name,
+                    videoResId = lesson.videoResId,
+                    thumbnailResId = lesson.thumbnailResId,
+                    savedAt = System.currentTimeMillis()
+                )
+                ref.set(record).await()
+                true
+            }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    suspend fun getWatchLaterLessons(): List<WatchLaterLesson> {
+        val userId = currentUserId() ?: return emptyList()
+        return try {
+            val snapshot = db.collection("users").document(userId)
+                .collection("watchLater")
+                .orderBy("savedAt")
+                .get()
+                .await()
+
+            snapshot.documents.mapNotNull { doc ->
+                doc.toObject(WatchLaterLesson::class.java)?.copy(
+                    lessonId = doc.getString("lessonId").orEmpty()
+                )
+            }.sortedByDescending { it.savedAt }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun buildWatchLaterSubject(savedLessons: List<WatchLaterLesson>): StudentFeedSubject {
+        return StudentFeedSubject(
+            subjectId = WATCH_LATER_SUBJECT_ID,
+            subjectName = "Watch Later",
+            courses = listOf(
+                StudentFeedCourse(
+                    subjectId = WATCH_LATER_SUBJECT_ID,
+                    subjectName = "Watch Later",
+                    courseId = WATCH_LATER_COURSE_ID,
+                    courseTitle = "Saved Lessons",
+                    courseDescription = "Lessons you saved to watch later.",
+                    lessons = savedLessons.map { it.toStudentFeedLesson() }
+                )
+            )
+        )
     }
 
     private fun buildStudentQuiz(lesson: Lesson): StudentQuiz {
@@ -202,8 +290,23 @@ class FirestoreRepository {
         }
     }
 
+    suspend fun getUserProfileModel(): UserProfile {
+        val user = Firebase.auth.currentUser ?: return UserProfile()
+        val xp = getUserXp()
+        val watchLaterCount = getWatchLaterLessons().size
+        val level = (xp / 100) + 1
+
+        return UserProfile(
+            uid = user.uid,
+            email = user.email.orEmpty(),
+            xp = xp,
+            level = level,
+            watchLaterCount = watchLaterCount
+        )
+    }
+
     suspend fun getUserProfile(): Map<String, Any> {
-        val userId = Firebase.auth.currentUser?.uid ?: return emptyMap()
+        val userId = currentUserId() ?: return emptyMap()
         return try {
             val doc = db.collection("users").document(userId).get().await()
             doc.data ?: emptyMap()
@@ -213,7 +316,7 @@ class FirestoreRepository {
     }
 
     suspend fun getUserXp(): Int {
-        val userId = Firebase.auth.currentUser?.uid ?: return 0
+        val userId = currentUserId() ?: return 0
         return try {
             val doc = db.collection("users").document(userId).get().await()
             (doc.getLong("xp") ?: 0L).toInt()
@@ -223,7 +326,7 @@ class FirestoreRepository {
     }
 
     suspend fun addXp(amount: Int) {
-        val userId = Firebase.auth.currentUser?.uid ?: return
+        val userId = currentUserId() ?: return
         try {
             db.collection("users").document(userId)
                 .update("xp", FieldValue.increment(amount.toLong()))
@@ -233,7 +336,7 @@ class FirestoreRepository {
     }
 
     suspend fun markLessonComplete(lessonId: String, score: Int, total: Int) {
-        val userId = Firebase.auth.currentUser?.uid ?: return
+        val userId = currentUserId() ?: return
         try {
             db.collection("users/$userId/progress").document(lessonId).set(
                 mapOf(
@@ -248,7 +351,7 @@ class FirestoreRepository {
     }
 
     suspend fun getLessonProgress(lessonId: String): Map<String, Any>? {
-        val userId = Firebase.auth.currentUser?.uid ?: return null
+        val userId = currentUserId() ?: return null
         return try {
             val doc = db.collection("users/$userId/progress").document(lessonId).get().await()
             if (doc.exists()) doc.data else null
