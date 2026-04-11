@@ -17,6 +17,7 @@ data class Lesson(
     val id: String = "",
     val title: String = "",
     val order: Int = 0,
+    val videoUrl: String = "", // Added directly here
     val components: List<Map<String, Any>> = emptyList()
 )
 

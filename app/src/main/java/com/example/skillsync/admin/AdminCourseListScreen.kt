@@ -1,9 +1,11 @@
 package com.example.skillsync.admin
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -17,6 +19,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -34,6 +37,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -106,6 +110,8 @@ fun AdminCourseListScreen(
 
     Column(
         modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
             .padding(16.dp)
             .verticalScroll(rememberScrollState())
     ) {
@@ -113,9 +119,9 @@ fun AdminCourseListScreen(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Admin Dashboard", fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            Text("Admin Dashboard", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.weight(1f))
             IconButton(onClick = onLogout) {
-                Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Logout")
+                Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Logout", tint = Color.White)
             }
         }
 
@@ -131,9 +137,9 @@ fun AdminCourseListScreen(
         Spacer(Modifier.height(16.dp))
 
         if (loading) {
-            CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
+            CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally), color = Color.White)
         } else if (subjects.isEmpty()) {
-            Text("No subjects found. Add one to get started!", modifier = Modifier.padding(top = 20.dp))
+            Text("No subjects found. Add one to get started!", color = Color.White, modifier = Modifier.padding(top = 20.dp))
         } else {
             subjects.forEach { subject ->
                 Text(subject.name, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
@@ -145,6 +151,7 @@ fun AdminCourseListScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 4.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiary),
                         border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
                     ) {
                         Row(
@@ -152,14 +159,14 @@ fun AdminCourseListScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(course.title, fontWeight = FontWeight.Medium)
-                                Text(course.description, fontSize = 12.sp, maxLines = 1)
+                                Text(course.title, fontWeight = FontWeight.Medium, color = Color.Black)
+                                Text(course.description, fontSize = 12.sp, color = Color.Black.copy(alpha = 0.7f), maxLines = 1)
                             }
                             IconButton(onClick = { onOpenLessons(subject.id, course.id) }) {
-                                Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Lessons")
+                                Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Lessons", tint = Color.Black)
                             }
                             IconButton(onClick = { onEditCourse(subject.id, course) }) {
-                                Icon(Icons.Default.Edit, contentDescription = "Edit")
+                                Icon(Icons.Default.Edit, contentDescription = "Edit", tint = Color.Black)
                             }
                         }
                     }
@@ -174,7 +181,7 @@ fun AdminCourseListScreen(
                     Text("Add Course to ${subject.name}")
                 }
                 
-                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = Color.White.copy(alpha = 0.2f))
             }
         }
     }

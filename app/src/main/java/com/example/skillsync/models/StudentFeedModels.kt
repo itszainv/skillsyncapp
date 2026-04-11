@@ -1,7 +1,6 @@
 package com.example.skillsync.models
 
 import androidx.annotation.DrawableRes
-import androidx.annotation.RawRes
 
 data class StudentFeedSubject(
     val subjectId: String,
@@ -23,7 +22,7 @@ data class StudentFeedLesson(
     val lessonTitle: String,
     val lessonOrder: Int,
     val quiz: StudentQuiz,
-    @RawRes val videoResId: Int,
+    val videoUrl: String, // Can be a Firebase URL or "res://raw/name"
     @DrawableRes val thumbnailResId: Int,
     val isSaved: Boolean = false
 )

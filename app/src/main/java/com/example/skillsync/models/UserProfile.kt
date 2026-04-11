@@ -24,7 +24,7 @@ data class WatchLaterLesson(
     val correctAnswerIndex: Int? = null,
     val explanation: String = "",
     val quizType: String = StudentQuizType.INFO.name,
-    val videoResId: Int = 0,
+    val videoUrl: String = "", // Updated to String
     val thumbnailResId: Int = 0,
     val savedAt: Long = 0L
 ) {
@@ -43,7 +43,7 @@ data class WatchLaterLesson(
                 explanation = explanation,
                 type = parsedQuizType
             ),
-            videoResId = videoResId,
+            videoUrl = videoUrl,
             thumbnailResId = thumbnailResId,
             isSaved = true
         )

@@ -152,13 +152,6 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
                 val activeSubject = subjects[safeSubjectIndex]
                 val safeCourseIndex = if (activeSubject.courses.isEmpty()) 0
                 else selectedCourseIndex.coerceIn(0, activeSubject.courses.lastIndex)
-                val activeCoursesScreenCourseIndex = when (val current = destination) {
-                    is StudentDestination.Courses -> {
-                        if (activeSubject.courses.isEmpty()) 0
-                        else current.courseIndex.coerceIn(0, activeSubject.courses.lastIndex)
-                    }
-                    else -> safeCourseIndex
-                }
 
                 Scaffold(
                     snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
@@ -479,7 +472,7 @@ private fun LessonFeedPage(
     onToggleWatchLater: (StudentFeedLesson, StudentFeedCourse) -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
-        VideoBackground(videoResId = item.lesson.videoResId)
+        VideoBackground(videoUrl = item.lesson.videoUrl)
 
         Box(
             modifier = Modifier
@@ -748,8 +741,8 @@ private fun QuizOverlay(
 }
 
 @Composable
-private fun VideoBackground(videoResId: Int) {
-    var isPaused by remember(videoResId) { mutableStateOf(false) }
+private fun VideoBackground(videoUrl: String) {
+    var isPaused by remember(videoUrl) { mutableStateOf(false) }
 
     AndroidView(
         modifier = Modifier
@@ -759,8 +752,15 @@ private fun VideoBackground(videoResId: Int) {
             },
         factory = { context ->
             VideoView(context).apply {
-                val uri = Uri.parse("android.resource://${context.packageName}/$videoResId")
-                tag = videoResId
+                val uri = if (videoUrl.startsWith("res://raw/")) {
+                    val resName = videoUrl.removePrefix("res://raw/")
+                    val resId = context.resources.getIdentifier(resName, "raw", context.packageName)
+                    Uri.parse("android.resource://${context.packageName}/$resId")
+                } else {
+                    Uri.parse(videoUrl)
+                }
+                
+                tag = videoUrl
                 setVideoURI(uri)
                 setOnPreparedListener { mediaPlayer ->
                     mediaPlayer.isLooping = true
@@ -771,9 +771,16 @@ private fun VideoBackground(videoResId: Int) {
             }
         },
         update = { videoView ->
-            val uri = Uri.parse("android.resource://${videoView.context.packageName}/$videoResId")
-            if (videoView.tag != videoResId) {
-                videoView.tag = videoResId
+            if (videoView.tag != videoUrl) {
+                val uri = if (videoUrl.startsWith("res://raw/")) {
+                    val resName = videoUrl.removePrefix("res://raw/")
+                    val resId = videoView.context.resources.getIdentifier(resName, "raw", videoView.context.packageName)
+                    Uri.parse("android.resource://${videoView.context.packageName}/$resId")
+                } else {
+                    Uri.parse(videoUrl)
+                }
+                
+                videoView.tag = videoUrl
                 videoView.setVideoURI(uri)
                 videoView.setOnPreparedListener { mediaPlayer ->
                     mediaPlayer.isLooping = true

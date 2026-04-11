@@ -1,5 +1,6 @@
 package com.example.skillsync.data
 
+import android.net.Uri
 import com.example.skillsync.models.Course
 import com.example.skillsync.models.Lesson
 import com.example.skillsync.models.StudentFeedCourse
@@ -121,9 +122,10 @@ class FirestoreRepository {
     }
 
     suspend fun getStudentFeedSubjects(): List<StudentFeedSubject> {
-        val videoIds = listOf(
-            com.example.skillsync.R.raw.video1,
-            com.example.skillsync.R.raw.video2
+        // Fallback hardcoded videos (now as resource strings)
+        val fallbackVideoUrls = listOf(
+            "res://raw/video1",
+            "res://raw/video2"
         )
         val thumbnailIds = listOf(
             com.example.skillsync.R.drawable.example_cover,
@@ -139,15 +141,19 @@ class FirestoreRepository {
                     val lessons = getLessons(subject.id, course.id)
                         .sortedBy { it.order }
                         .mapIndexed { lessonIndex, lesson ->
-                            val mediaIndex = if (videoIds.isEmpty()) 0
-                            else (subjectIndex + courseIndex + lessonIndex) % videoIds.size
+                            // Check if the lesson has a videoUrl stored in Firestore (future-proofing)
+                            // Note: We might need to update the Lesson model to include videoUrl
+                            val videoUrlFromDb = lesson.components.firstOrNull()?.get("videoUrl")?.toString()
+                            
+                            val mediaIndex = if (fallbackVideoUrls.isEmpty()) 0
+                            else (subjectIndex + courseIndex + lessonIndex) % fallbackVideoUrls.size
 
                             StudentFeedLesson(
                                 lessonId = lesson.id,
                                 lessonTitle = lesson.title.ifBlank { "Lesson ${lessonIndex + 1}" },
                                 lessonOrder = lesson.order,
                                 quiz = buildStudentQuiz(lesson),
-                                videoResId = videoIds[mediaIndex],
+                                videoUrl = videoUrlFromDb ?: fallbackVideoUrls[mediaIndex],
                                 thumbnailResId = thumbnailIds[mediaIndex % thumbnailIds.size],
                                 isSaved = lesson.id in savedLessonIds
                             )
@@ -210,7 +216,7 @@ class FirestoreRepository {
                     correctAnswerIndex = lesson.quiz.correctAnswerIndex,
                     explanation = lesson.quiz.explanation,
                     quizType = lesson.quiz.type.name,
-                    videoResId = lesson.videoResId,
+                    videoUrl = lesson.videoUrl,
                     thumbnailResId = lesson.thumbnailResId,
                     savedAt = System.currentTimeMillis()
                 )
