@@ -43,10 +43,12 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
@@ -84,6 +86,7 @@ import com.example.skillsync.models.StudentFeedLesson
 import com.example.skillsync.models.StudentFeedSubject
 import com.example.skillsync.models.StudentQuiz
 import com.example.skillsync.models.StudentQuizType
+import com.example.skillsync.models.UserProfile
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -109,6 +112,7 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
     var destination by remember { mutableStateOf<StudentDestination>(StudentDestination.Feed) }
     var feedStartPage by remember { mutableIntStateOf(0) }
     var selectedCourseIndex by remember { mutableIntStateOf(0) }
+    var userProfile by remember { mutableStateOf(UserProfile()) }
     val savedLessonsCount = remember(subjects) {
         subjects
             .flatMap { it.courses }
@@ -123,6 +127,7 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
     suspend fun refreshSubjects(showLoading: Boolean = false) {
         if (showLoading) loading = true
         subjects = withContext(Dispatchers.IO) { repo.getStudentFeedSubjects() }
+        userProfile = withContext(Dispatchers.IO) { repo.getUserProfileModel() }
         if (subjects.isNotEmpty()) {
             selectedSubjectIndex = selectedSubjectIndex.coerceIn(0, subjects.lastIndex)
             val activeSubject = subjects[selectedSubjectIndex]
@@ -156,12 +161,22 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
                 Scaffold(
                     snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
                     bottomBar = {
-                        NavigationBar {
+                        NavigationBar(
+                            containerColor = Color(0xFFD62828),
+                            contentColor = Color.Black
+                        ) {
                             NavigationBarItem(
                                 selected = destination is StudentDestination.Feed,
                                 onClick = { destination = StudentDestination.Feed },
                                 icon = { Icon(Icons.Default.Home, contentDescription = "Feed") },
-                                label = { Text("Feed") }
+                                label = { Text("Feed") },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = Color.Black,
+                                    selectedTextColor = Color.Black,
+                                    unselectedIconColor = Color.Black,
+                                    unselectedTextColor = Color.Black,
+                                    indicatorColor = Color.White.copy(alpha = 0.22f)
+                                )
                             )
                             NavigationBarItem(
                                 selected = destination is StudentDestination.Courses,
@@ -169,13 +184,27 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
                                     destination = StudentDestination.Courses(safeSubjectIndex, safeCourseIndex)
                                 },
                                 icon = { Icon(Icons.Default.Person, contentDescription = "Courses") },
-                                label = { Text("Courses") }
+                                label = { Text("Courses") },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = Color.Black,
+                                    selectedTextColor = Color.Black,
+                                    unselectedIconColor = Color.Black,
+                                    unselectedTextColor = Color.Black,
+                                    indicatorColor = Color.White.copy(alpha = 0.22f)
+                                )
                             )
                             NavigationBarItem(
                                 selected = destination is StudentDestination.Profile,
                                 onClick = { destination = StudentDestination.Profile },
                                 icon = { Icon(Icons.Default.Bookmark, contentDescription = "Profile") },
-                                label = { Text("Profile") }
+                                label = { Text("Profile") },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = Color.Black,
+                                    selectedTextColor = Color.Black,
+                                    unselectedIconColor = Color.Black,
+                                    unselectedTextColor = Color.Black,
+                                    indicatorColor = Color.White.copy(alpha = 0.22f)
+                                )
                             )
                         }
                     }
@@ -218,6 +247,9 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
                             },
                             onRefreshAfterWatchLater = {
                                 refreshSubjects()
+                            },
+                            onQuizAnswered = {
+                                refreshSubjects()
                             }
                         )
 
@@ -249,12 +281,12 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
                             modifier = Modifier.padding(innerPadding),
                             userEmail = userEmail,
                             displayName = currentUser?.displayName.orEmpty(),
-                            savedLessonsCount = savedLessonsCount,
+                            savedLessonsCount = userProfile.watchLaterCount,
                             totalCoursesCount = totalCoursesCount,
                             totalLessonsCount = totalLessonsCount,
-                            level = 1,
-                            xp = 0,
-                            streak = 0,
+                            level = userProfile.level,
+                            xp = userProfile.xp,
+                            streak = userProfile.currentStreak,
                             onLogout = onLogout
                         )
                     }
@@ -299,7 +331,8 @@ private fun StudentFeedScreen(
     onOpenProfile: (Int, Int) -> Unit,
     onToggleWatchLater: suspend (StudentFeedLesson, StudentFeedCourse) -> Boolean,
     onWatchLaterMessage: suspend (Boolean) -> Unit,
-    onRefreshAfterWatchLater: suspend () -> Unit
+    onRefreshAfterWatchLater: suspend () -> Unit,
+    onQuizAnswered: suspend () -> Unit
 ) {
     val subject = subjects[selectedSubjectIndex.coerceIn(0, subjects.lastIndex)]
     val safeCourseIndex = if (subject.courses.isEmpty()) 0 else selectedCourseIndex.coerceIn(0, subject.courses.lastIndex)
@@ -387,6 +420,11 @@ private fun StudentFeedScreen(
                             onRefreshAfterWatchLater()
                             onWatchLaterMessage(isSavedNow)
                         }
+                    },
+                    onQuizAnswered = {
+                        scope.launch {
+                            onQuizAnswered()
+                        }
                     }
                 )
             }
@@ -469,7 +507,8 @@ private fun LessonFeedPage(
     subjectName: String,
     quizState: QuizUiState,
     onOpenProfile: () -> Unit,
-    onToggleWatchLater: (StudentFeedLesson, StudentFeedCourse) -> Unit
+    onToggleWatchLater: (StudentFeedLesson, StudentFeedCourse) -> Unit,
+    onQuizAnswered: suspend () -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         VideoBackground(videoUrl = item.lesson.videoUrl)
@@ -591,9 +630,11 @@ private fun LessonFeedPage(
 
         if (quizState.isVisible) {
             QuizOverlay(
+                lessonId = item.lesson.lessonId,
                 quiz = item.lesson.quiz,
                 state = quizState,
-                modifier = Modifier.align(Alignment.Center)
+                modifier = Modifier.align(Alignment.Center),
+                onQuizAnswered = onQuizAnswered
             )
         }
     }
@@ -601,10 +642,14 @@ private fun LessonFeedPage(
 
 @Composable
 private fun QuizOverlay(
+    lessonId: String,
     quiz: StudentQuiz,
     state: QuizUiState,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onQuizAnswered: suspend () -> Unit
 ) {
+    val scope = rememberCoroutineScope()
+    val repo = remember { FirestoreRepository() }
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -729,11 +774,29 @@ private fun QuizOverlay(
                     Text(if (state.submitted) "Done" else "Close")
                 }
                 Button(
-                    onClick = { state.submitted = true },
-                    enabled = quiz.correctAnswerIndex == null || state.selectedAnswerIndex != null,
+                    onClick = {
+                        if (state.submitted) {
+                            state.isVisible = false
+                            state.submitted = false
+                            state.selectedAnswerIndex = null
+                            return@Button
+                        }
+
+                        state.submitted = true
+                        val isCorrect = state.selectedAnswerIndex == quiz.correctAnswerIndex
+
+                        scope.launch {
+                            repo.recordQuizAnswer(
+                                lessonId = lessonId,
+                                isCorrect = isCorrect
+                            )
+                            onQuizAnswered()
+                        }
+                    },
+                    enabled = state.submitted || quiz.correctAnswerIndex == null || state.selectedAnswerIndex != null,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text(if (state.submitted) "Results" else "Submit")
+                    Text(if (state.submitted) "Done" else "Submit")
                 }
             }
         }
@@ -759,7 +822,7 @@ private fun VideoBackground(videoUrl: String) {
                 } else {
                     Uri.parse(videoUrl)
                 }
-                
+
                 tag = videoUrl
                 setVideoURI(uri)
                 setOnPreparedListener { mediaPlayer ->
@@ -779,7 +842,7 @@ private fun VideoBackground(videoUrl: String) {
                 } else {
                     Uri.parse(videoUrl)
                 }
-                
+
                 videoView.tag = videoUrl
                 videoView.setVideoURI(uri)
                 videoView.setOnPreparedListener { mediaPlayer ->
@@ -910,7 +973,21 @@ private fun StudentProfileScreen(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                    }
+                    },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = Color(0xFFD62828),
+                        selectedLabelColor = Color.White,
+                        containerColor = Color.Transparent,
+                        labelColor = Color.White
+                    ),
+                    border = FilterChipDefaults.filterChipBorder(
+                        enabled = true,
+                        selected = index == safeCourseIndex,
+                        borderColor = Color(0xFFFFD54F),
+                        selectedBorderColor = Color(0xFFFFD54F),
+                        borderWidth = 1.dp,
+                        selectedBorderWidth = 1.dp
+                    )
                 )
             }
         }
@@ -1002,7 +1079,21 @@ private fun SubjectSection(
                 FilterChip(
                     selected = index == selectedSubjectIndex,
                     onClick = { onSwitchSubject(index) },
-                    label = { Text(subject.subjectName) }
+                    label = { Text(subject.subjectName) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = Color(0xFFD62828),
+                        selectedLabelColor = Color.White,
+                        containerColor = Color.Transparent,
+                        labelColor = Color.White
+                    ),
+                    border = FilterChipDefaults.filterChipBorder(
+                        enabled = true,
+                        selected = index == selectedSubjectIndex,
+                        borderColor = Color(0xFFFFD54F),
+                        selectedBorderColor = Color(0xFFFFD54F),
+                        borderWidth = 1.dp,
+                        selectedBorderWidth = 1.dp
+                    )
                 )
             }
         }
@@ -1058,6 +1149,8 @@ private fun StudentAccountProfileScreen(
                 .fillMaxWidth()
                 .padding(top = 16.dp),
             shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFDAA520)),
+            border = androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFB71C1C)),
             elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
@@ -1070,7 +1163,7 @@ private fun StudentAccountProfileScreen(
                 ) {
                     Text(
                         text = (displayName.ifBlank { userEmail }.take(1).uppercase()),
-                        color = Color.White,
+                        color = Color.Black,
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -1080,13 +1173,14 @@ private fun StudentAccountProfileScreen(
                     text = if (displayName.isBlank()) "Student" else displayName,
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
+                    color = Color.Black,
                     modifier = Modifier.padding(top = 12.dp)
                 )
 
                 Text(
                     text = userEmail,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = Color.Black,
                     modifier = Modifier.padding(top = 4.dp)
                 )
             }
@@ -1102,10 +1196,27 @@ private fun StudentAccountProfileScreen(
             userScrollEnabled = false
         ) {
             item {
-                ProfileStatCard(title = "Level", value = level.toString())
+                val xpProgress = remember(xp) {
+                    var currentLevel = 1
+                    var xpNeededForThisLevel = 10
+                    var remainingXp = xp
+
+                    while (currentLevel < 20 && remainingXp >= xpNeededForThisLevel) {
+                        remainingXp -= xpNeededForThisLevel
+                        currentLevel++
+                        xpNeededForThisLevel += 10
+                    }
+
+                    remainingXp to xpNeededForThisLevel
+                }
+
+                ProfileStatCard(
+                    title = "XP",
+                    value = "${xpProgress.first}/${xpProgress.second}"
+                )
             }
             item {
-                ProfileStatCard(title = "XP", value = xp.toString())
+                ProfileStatCard(title = "Level", value = level.toString())
             }
             item {
                 ProfileStatCard(title = "Streak", value = streak.toString())
@@ -1142,6 +1253,8 @@ private fun ProfileStatCard(
 ) {
     Card(
         shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFD62828)),
+        border = androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFFFD54F)),
         elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
     ) {
         Column(
@@ -1152,12 +1265,13 @@ private fun ProfileStatCard(
             Text(
                 text = title,
                 style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = Color(0xFFFFF8E1)
             )
             Text(
                 text = value,
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
+                color = Color.White,
                 modifier = Modifier.padding(top = 6.dp)
             )
         }

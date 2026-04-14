@@ -328,8 +328,40 @@ class FirestoreRepository {
         }
     }
 
-    private fun calculateLevelFromXp(xp: Int): Int {
-        return (xp / 100).coerceAtLeast(0) + 1
+    private data class LevelProgress(
+        val level: Int,
+        val xpIntoCurrentLevel: Int,
+        val xpRequiredForNextLevel: Int
+    )
+
+    private fun getLevelProgress(totalXp: Int): LevelProgress {
+        var level = 1
+        var xpRequired = 10
+        var remainingXp = totalXp.coerceAtLeast(0)
+
+        while (level < 20 && remainingXp >= xpRequired) {
+            remainingXp -= xpRequired
+            level++
+            xpRequired += 10
+        }
+
+        return if (level >= 20) {
+            LevelProgress(
+                level = 20,
+                xpIntoCurrentLevel = 0,
+                xpRequiredForNextLevel = 0
+            )
+        } else {
+            LevelProgress(
+                level = level,
+                xpIntoCurrentLevel = remainingXp,
+                xpRequiredForNextLevel = xpRequired
+            )
+        }
+    }
+
+    private fun calculateLevelFromXp(totalXp: Int): Int {
+        return getLevelProgress(totalXp).level
     }
 
     suspend fun getUserProfileModel(): UserProfile {
@@ -412,38 +444,58 @@ class FirestoreRepository {
         }
     }
 
-    suspend fun recordQuizAnswer(isCorrect: Boolean, baseXp: Int = 10): UserProfile {
+    suspend fun recordQuizAnswer(
+        lessonId: String,
+        isCorrect: Boolean
+    ): UserProfile {
         val userId = currentUserId() ?: return UserProfile()
         ensureUserProfileDocument()
+
         val userRef = db.collection("users").document(userId)
+        val answeredRef = userRef.collection("answeredLessons").document(lessonId)
 
         return try {
+            val alreadyAnswered = answeredRef.get().await().exists()
+            if (alreadyAnswered) {
+                return getUserProfileModel()
+            }
+
             val doc = userRef.get().await()
             val currentXp = (doc.getLong("xp") ?: 0L).toInt()
             val currentStreak = (doc.getLong("currentStreak") ?: 0L).toInt()
             val highestStreak = (doc.getLong("highestStreak") ?: 0L).toInt()
             val watchLaterCount = (doc.getLong("watchLaterCount") ?: 0L).toInt()
-            val email = doc.getString("email").orEmpty().ifBlank { Firebase.auth.currentUser?.email.orEmpty() }
+            val email = doc.getString("email").orEmpty()
 
-            val newStreak = if (isCorrect) currentStreak + 1 else 0
+            val newCurrentStreak = if (isCorrect) currentStreak + 1 else 0
             val multiplier = when {
-                newStreak >= 5 -> 2.0
-                newStreak >= 3 -> 1.5
-                newStreak >= 2 -> 1.2
+                newCurrentStreak >= 5 -> 2.0
+                newCurrentStreak >= 3 -> 1.5
+                newCurrentStreak >= 2 -> 1.2
                 else -> 1.0
             }
+
+            val baseXp = 5
             val xpEarned = if (isCorrect) (baseXp * multiplier).toInt() else 0
             val newXp = currentXp + xpEarned
-            val newHighestStreak = maxOf(highestStreak, newStreak)
-            val newLevel = calculateLevelFromXp(newXp)
+            val newHighestStreak = maxOf(highestStreak, newCurrentStreak)
+            val levelProgress = getLevelProgress(newXp)
 
             userRef.update(
                 mapOf(
                     "xp" to newXp,
-                    "level" to newLevel,
-                    "currentStreak" to newStreak,
+                    "level" to levelProgress.level,
+                    "currentStreak" to newCurrentStreak,
                     "highestStreak" to newHighestStreak,
                     "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+
+            answeredRef.set(
+                mapOf(
+                    "isCorrect" to isCorrect,
+                    "xpEarned" to xpEarned,
+                    "answeredAt" to FieldValue.serverTimestamp()
                 )
             ).await()
 
@@ -451,8 +503,8 @@ class FirestoreRepository {
                 uid = userId,
                 email = email,
                 xp = newXp,
-                level = newLevel,
-                currentStreak = newStreak,
+                level = levelProgress.level,
+                currentStreak = newCurrentStreak,
                 highestStreak = newHighestStreak,
                 watchLaterCount = watchLaterCount
             )
@@ -484,5 +536,19 @@ class FirestoreRepository {
         } catch (e: Exception) {
             null
         }
+    }
+
+    private fun getLevelInfo(totalXp: Int): Pair<Int, Int> {
+        var level = 1
+        var xpNeeded = 10
+        var remainingXp = totalXp
+
+        while (level < 20 && remainingXp >= xpNeeded) {
+            remainingXp -= xpNeeded
+            level++
+            xpNeeded += 10
+        }
+
+        return level to xpNeeded // (current level, xp needed for NEXT level)
     }
 }
