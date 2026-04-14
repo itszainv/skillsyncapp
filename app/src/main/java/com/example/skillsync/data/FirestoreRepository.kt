@@ -503,11 +503,11 @@ class FirestoreRepository {
             val level = calculateLevelFromXp(xp)
             val dailyXp = (doc.getLong("dailyXp") ?: 0L).toInt()
             val skillBux = (doc.getLong("skillBux") ?: 0L).toInt()
-            val selectedTheme = doc.getString("selectedTheme").orEmpty().ifBlank { "dark_red" }
+            val selectedTheme = doc.getString("theme").orEmpty().ifBlank { "dark_red" }
             val purchasedThemes = (doc.get("purchasedThemes") as? List<*>)?.mapNotNull { it?.toString() }?.ifEmpty { listOf("dark_red") } ?: listOf("dark_red")
-            val selectedAvatar = doc.getString("selectedAvatar").orEmpty().ifBlank { "🙂" }
+            val selectedAvatar = doc.getString("avatar").orEmpty().ifBlank { "🙂" }
             val purchasedAvatars = (doc.get("purchasedAvatars") as? List<*>)?.mapNotNull { it?.toString() }?.ifEmpty { listOf("🙂") } ?: listOf("🙂")
-            val selectedNameIcon = doc.getString("selectedNameIcon").orEmpty()
+            val selectedNameIcon = doc.getString("nameIcon").orEmpty()
             val purchasedNameIcons = (doc.get("purchasedNameIcons") as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
 
             UserProfile(
@@ -725,7 +725,7 @@ class FirestoreRepository {
         db.collection("users").document(userId)
             .update(
                 mapOf(
-                    "selectedTheme" to themeId,
+                    "theme" to themeId,
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
             ).await()
@@ -737,7 +737,7 @@ class FirestoreRepository {
         db.collection("users").document(userId)
             .update(
                 mapOf(
-                    "selectedAvatar" to avatar,
+                    "avatar" to avatar,
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
             ).await()
@@ -749,7 +749,7 @@ class FirestoreRepository {
         db.collection("users").document(userId)
             .update(
                 mapOf(
-                    "selectedNameIcon" to icon,
+                    "nameIcon" to icon,
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
             ).await()
