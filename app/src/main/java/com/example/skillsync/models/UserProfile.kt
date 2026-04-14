@@ -7,7 +7,19 @@ data class UserProfile(
     val level: Int = 1,
     val currentStreak: Int = 0,
     val highestStreak: Int = 0,
-    val watchLaterCount: Int = 0
+    val watchLaterCount: Int = 0,
+    val dailyXp: Int = 0
+)
+
+data class LeaderboardEntry(
+    val name: String = "",
+    val value: Int = 0
+)
+
+data class LeaderboardData(
+    val topStreakUsers: List<LeaderboardEntry> = emptyList(),
+    val topLevelUsers: List<LeaderboardEntry> = emptyList(),
+    val topDailyXpUsers: List<LeaderboardEntry> = emptyList()
 )
 
 data class WatchLaterLesson(

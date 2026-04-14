@@ -1,6 +1,7 @@
 package com.example.skillsync.models
 
 import androidx.annotation.DrawableRes
+import androidx.annotation.RawRes
 
 data class StudentFeedSubject(
     val subjectId: String,
@@ -28,7 +29,7 @@ data class StudentFeedLesson(
     val lessonTitle: String,
     val lessonOrder: Int,
     val quiz: StudentQuiz,
-    @DrawableRes val videoResId: Int,
+    @RawRes val videoResId: Int,
     @DrawableRes val thumbnailResId: Int,
     val isSaved: Boolean = false,
     val isCompleted: Boolean = false

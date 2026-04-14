@@ -91,11 +91,17 @@ import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.filled.EmojiEvents
+import com.example.skillsync.models.LeaderboardData
+import androidx.compose.foundation.layout.width
 
 private sealed interface StudentDestination {
     data object Feed : StudentDestination
     data class Courses(val subjectIndex: Int, val courseIndex: Int) : StudentDestination
     data object Profile : StudentDestination
+    data object Leaderboards : StudentDestination
 }
 
 @Composable
@@ -113,6 +119,7 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
     var feedStartPage by remember { mutableIntStateOf(0) }
     var selectedCourseIndex by remember { mutableIntStateOf(0) }
     var userProfile by remember { mutableStateOf(UserProfile()) }
+    var leaderboardData by remember { mutableStateOf(LeaderboardData()) }
     val savedLessonsCount = remember(subjects) {
         subjects
             .flatMap { it.courses }
@@ -128,6 +135,8 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
         if (showLoading) loading = true
         subjects = withContext(Dispatchers.IO) { repo.getStudentFeedSubjects() }
         userProfile = withContext(Dispatchers.IO) { repo.getUserProfileModel() }
+        leaderboardData = withContext(Dispatchers.IO) { repo.getLeaderboardData() }
+
         if (subjects.isNotEmpty()) {
             selectedSubjectIndex = selectedSubjectIndex.coerceIn(0, subjects.lastIndex)
             val activeSubject = subjects[selectedSubjectIndex]
@@ -137,6 +146,7 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
             selectedSubjectIndex = 0
             selectedCourseIndex = 0
         }
+
         if (showLoading) loading = false
     }
 
@@ -185,6 +195,19 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
                                 },
                                 icon = { Icon(Icons.Default.Person, contentDescription = "Courses") },
                                 label = { Text("Courses") },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = Color.Black,
+                                    selectedTextColor = Color.Black,
+                                    unselectedIconColor = Color.Black,
+                                    unselectedTextColor = Color.Black,
+                                    indicatorColor = Color.White.copy(alpha = 0.22f)
+                                )
+                            )
+                            NavigationBarItem(
+                                selected = destination is StudentDestination.Leaderboards,
+                                onClick = { destination = StudentDestination.Leaderboards },
+                                icon = { Icon(Icons.Default.EmojiEvents, contentDescription = "Leaderboards") },
+                                label = { Text("Leaderboards") },
                                 colors = NavigationBarItemDefaults.colors(
                                     selectedIconColor = Color.Black,
                                     selectedTextColor = Color.Black,
@@ -288,6 +311,11 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
                             xp = userProfile.xp,
                             streak = userProfile.currentStreak,
                             onLogout = onLogout
+                        )
+
+                        StudentDestination.Leaderboards -> LeaderboardsScreen(
+                            modifier = Modifier.padding(innerPadding),
+                            leaderboardData = leaderboardData
                         )
                     }
                 }
@@ -1216,6 +1244,117 @@ private fun StudentAccountProfileScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Logout")
+        }
+    }
+}
+
+@Composable
+private fun LeaderboardsScreen(
+    modifier: Modifier = Modifier,
+    leaderboardData: LeaderboardData
+) {
+    LazyColumn(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            Text(
+                text = "Leaderboards",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+        }
+
+        item {
+            LeaderboardCard(
+                title = "Highest Streak",
+                subtitle = "Top right-answer streaks",
+                entries = leaderboardData.topStreakUsers,
+                valueLabel = "streak"
+            )
+        }
+
+        item {
+            LeaderboardCard(
+                title = "Highest Level",
+                subtitle = "Top current levels",
+                entries = leaderboardData.topLevelUsers,
+                valueLabel = "level"
+            )
+        }
+
+        item {
+            LeaderboardCard(
+                title = "Most XP Today",
+                subtitle = "Top XP earned in a single day",
+                entries = leaderboardData.topDailyXpUsers,
+                valueLabel = "XP"
+            )
+        }
+    }
+}
+
+@Composable
+private fun LeaderboardCard(
+    title: String,
+    subtitle: String,
+    entries: List<com.example.skillsync.models.LeaderboardEntry>,
+    valueLabel: String
+) {
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFD62828)),
+        border = androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFFFD54F))
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color(0xFFFFF8E1),
+                modifier = Modifier.padding(top = 4.dp, bottom = 10.dp)
+            )
+
+            if (entries.isEmpty()) {
+                Text(
+                    text = "No data yet",
+                    color = Color.White
+                )
+            } else {
+                entries.forEachIndexed { index, entry ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "${index + 1}.",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.width(28.dp)
+                        )
+                        Text(
+                            text = entry.name,
+                            color = Color.White,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = "${entry.value} $valueLabel",
+                            color = Color(0xFFFFD54F),
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
         }
     }
 }

@@ -16,6 +16,11 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.firestore
 import kotlinx.coroutines.tasks.await
+import com.example.skillsync.models.LeaderboardData
+import com.example.skillsync.models.LeaderboardEntry
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class FirestoreRepository {
 
@@ -24,6 +29,10 @@ class FirestoreRepository {
         val xpIntoCurrentLevel: Int,
         val xpRequiredForNextLevel: Int
     )
+
+    private fun todayKey(): String {
+        return SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+    }
 
     private fun getLevelProgress(totalXp: Int): LevelProgress {
         var level = 1
@@ -127,6 +136,8 @@ class FirestoreRepository {
                     "currentStreak" to 0,
                     "highestStreak" to 0,
                     "watchLaterCount" to 0,
+                    "dailyXp" to 0,
+                    "dailyXpDate" to todayKey(),
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
             ).await()
@@ -486,6 +497,7 @@ class FirestoreRepository {
             val highestStreak = (doc.getLong("highestStreak") ?: 0L).toInt()
             val watchLaterCount = (doc.getLong("watchLaterCount") ?: 0L).toInt()
             val level = calculateLevelFromXp(xp)
+            val dailyXp = (doc.getLong("dailyXp") ?: 0L).toInt()
 
             UserProfile(
                 uid = user.uid,
@@ -494,12 +506,14 @@ class FirestoreRepository {
                 level = level,
                 currentStreak = currentStreak,
                 highestStreak = highestStreak,
-                watchLaterCount = watchLaterCount
+                watchLaterCount = watchLaterCount,
+                dailyXp = dailyXp
             )
         } catch (e: Exception) {
             UserProfile(
                 uid = user.uid,
-                email = user.email.orEmpty()
+                email = user.email.orEmpty(),
+                dailyXp = 0
             )
         }
     }
@@ -572,18 +586,24 @@ class FirestoreRepository {
             val currentStreak = (doc.getLong("currentStreak") ?: 0L).toInt()
             val highestStreak = (doc.getLong("highestStreak") ?: 0L).toInt()
             val watchLaterCount = (doc.getLong("watchLaterCount") ?: 0L).toInt()
+            val storedDailyXp = (doc.getLong("dailyXp") ?: 0L).toInt()
+            val storedDailyXpDate = doc.getString("dailyXpDate").orEmpty()
             val email = doc.getString("email").orEmpty()
+            val today = todayKey()
 
             val alreadyCompleted = completedRef.get().await().exists()
-
             if (alreadyCompleted) {
                 return getUserProfileModel()
             }
+
+            val currentDailyXp = if (storedDailyXpDate == today) storedDailyXp else 0
 
             if (!isCorrect) {
                 userRef.update(
                     mapOf(
                         "currentStreak" to 0,
+                        "dailyXp" to currentDailyXp,
+                        "dailyXpDate" to today,
                         "updatedAt" to FieldValue.serverTimestamp()
                     )
                 ).await()
@@ -595,7 +615,8 @@ class FirestoreRepository {
                     level = calculateLevelFromXp(currentXp),
                     currentStreak = 0,
                     highestStreak = highestStreak,
-                    watchLaterCount = watchLaterCount
+                    watchLaterCount = watchLaterCount,
+                    dailyXp = currentDailyXp
                 )
             }
 
@@ -617,31 +638,24 @@ class FirestoreRepository {
             ).await()
 
             val refreshedSubjects = getStudentFeedSubjects()
-            val subject =
-                refreshedSubjects.firstOrNull { s -> s.courses.any { c -> c.lessons.any { it.lessonId == lessonId } } }
-            val course =
-                subject?.courses?.firstOrNull { c -> c.lessons.any { it.lessonId == lessonId } }
+            val subject = refreshedSubjects.firstOrNull { s ->
+                s.courses.any { c -> c.lessons.any { it.lessonId == lessonId } }
+            }
+            val course = subject?.courses?.firstOrNull { c ->
+                c.lessons.any { it.lessonId == lessonId }
+            }
 
             val courseBonus = if (course != null) {
-                claimProgressMilestoneIfNeeded(
-                    userId,
-                    "course",
-                    course.courseId,
-                    course.completionPercent
-                )
+                claimProgressMilestoneIfNeeded(userId, "course", course.courseId, course.completionPercent)
             } else 0
 
             val subjectBonus = if (subject != null) {
-                claimProgressMilestoneIfNeeded(
-                    userId,
-                    "subject",
-                    subject.subjectId,
-                    subject.completionPercent
-                )
+                claimProgressMilestoneIfNeeded(userId, "subject", subject.subjectId, subject.completionPercent)
             } else 0
 
             val totalXpToAdd = quizXp + courseBonus + subjectBonus
             val newXp = currentXp + totalXpToAdd
+            val newDailyXp = currentDailyXp + totalXpToAdd
             val newHighestStreak = maxOf(highestStreak, newCurrentStreak)
             val levelProgress = getLevelProgress(newXp)
 
@@ -651,6 +665,8 @@ class FirestoreRepository {
                     "level" to levelProgress.level,
                     "currentStreak" to newCurrentStreak,
                     "highestStreak" to newHighestStreak,
+                    "dailyXp" to newDailyXp,
+                    "dailyXpDate" to today,
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
             ).await()
@@ -662,10 +678,55 @@ class FirestoreRepository {
                 level = levelProgress.level,
                 currentStreak = newCurrentStreak,
                 highestStreak = newHighestStreak,
-                watchLaterCount = watchLaterCount
+                watchLaterCount = watchLaterCount,
+                dailyXp = newDailyXp
             )
         } catch (e: Exception) {
             getUserProfileModel()
+        }
+    }
+
+    suspend fun getLeaderboardData(): LeaderboardData {
+        return try {
+            val usersSnapshot = db.collection("users").get().await()
+            val today = todayKey()
+
+            val entries = usersSnapshot.documents.map { doc ->
+                val email = doc.getString("email").orEmpty()
+                val displayName = doc.getString("displayName").orEmpty()
+                val name = displayName.ifBlank {
+                    if (email.isNotBlank()) email.substringBefore("@") else "User"
+                }
+
+                val highestStreak = (doc.getLong("highestStreak") ?: 0L).toInt()
+                val level = (doc.getLong("level") ?: 1L).toInt()
+                val dailyXpDate = doc.getString("dailyXpDate").orEmpty()
+                val dailyXp = if (dailyXpDate == today) {
+                    (doc.getLong("dailyXp") ?: 0L).toInt()
+                } else {
+                    0
+                }
+
+                Triple(
+                    LeaderboardEntry(name = name, value = highestStreak),
+                    LeaderboardEntry(name = name, value = level),
+                    LeaderboardEntry(name = name, value = dailyXp)
+                )
+            }
+
+            LeaderboardData(
+                topStreakUsers = entries.map { it.first }
+                    .sortedByDescending { it.value }
+                    .take(10),
+                topLevelUsers = entries.map { it.second }
+                    .sortedByDescending { it.value }
+                    .take(10),
+                topDailyXpUsers = entries.map { it.third }
+                    .sortedByDescending { it.value }
+                    .take(10)
+            )
+        } catch (e: Exception) {
+            LeaderboardData()
         }
     }
 }
