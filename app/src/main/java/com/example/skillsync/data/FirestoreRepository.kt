@@ -128,20 +128,24 @@ class FirestoreRepository {
         val user = Firebase.auth.currentUser ?: return
         val ref = db.collection("users").document(user.uid)
         val snapshot = ref.get().await()
-        if (!snapshot.exists()) {
-            ref.set(
-                mapOf(
-                    "email" to user.email.orEmpty(),
-                    "xp" to 0,
-                    "currentStreak" to 0,
-                    "highestStreak" to 0,
-                    "watchLaterCount" to 0,
-                    "dailyXp" to 0,
-                    "dailyXpDate" to todayKey(),
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-            ).await()
-        }
+
+        val defaultFields = mapOf(
+            "email" to user.email.orEmpty(),
+            "xp" to (snapshot.getLong("xp") ?: 0L),
+            "level" to (snapshot.getLong("level") ?: 1L),
+            "currentStreak" to (snapshot.getLong("currentStreak") ?: 0L),
+            "highestStreak" to (snapshot.getLong("highestStreak") ?: 0L),
+            "watchLaterCount" to (snapshot.getLong("watchLaterCount") ?: 0L),
+            "dailyXp" to (snapshot.getLong("dailyXp") ?: 0L),
+            "dailyXpDate" to (snapshot.getString("dailyXpDate") ?: todayKey()),
+            "skillBux" to (snapshot.getLong("skillBux") ?: 0L),
+            "theme" to (snapshot.getString("theme") ?: "red_black"),
+            "avatar" to (snapshot.getString("avatar") ?: "🙂"),
+            "nameIcon" to (snapshot.getString("nameIcon") ?: ""),
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+
+        ref.set(defaultFields, com.google.firebase.firestore.SetOptions.merge()).await()
     }
 
     suspend fun getSubjects(): List<Subject> {
@@ -498,6 +502,13 @@ class FirestoreRepository {
             val watchLaterCount = (doc.getLong("watchLaterCount") ?: 0L).toInt()
             val level = calculateLevelFromXp(xp)
             val dailyXp = (doc.getLong("dailyXp") ?: 0L).toInt()
+            val skillBux = (doc.getLong("skillBux") ?: 0L).toInt()
+            val selectedTheme = doc.getString("selectedTheme").orEmpty().ifBlank { "dark_red" }
+            val purchasedThemes = (doc.get("purchasedThemes") as? List<*>)?.mapNotNull { it?.toString() }?.ifEmpty { listOf("dark_red") } ?: listOf("dark_red")
+            val selectedAvatar = doc.getString("selectedAvatar").orEmpty().ifBlank { "🙂" }
+            val purchasedAvatars = (doc.get("purchasedAvatars") as? List<*>)?.mapNotNull { it?.toString() }?.ifEmpty { listOf("🙂") } ?: listOf("🙂")
+            val selectedNameIcon = doc.getString("selectedNameIcon").orEmpty()
+            val purchasedNameIcons = (doc.get("purchasedNameIcons") as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
 
             UserProfile(
                 uid = user.uid,
@@ -507,13 +518,27 @@ class FirestoreRepository {
                 currentStreak = currentStreak,
                 highestStreak = highestStreak,
                 watchLaterCount = watchLaterCount,
-                dailyXp = dailyXp
+                dailyXp = dailyXp,
+                skillBux = skillBux,
+                selectedTheme = selectedTheme,
+                purchasedThemes = purchasedThemes,
+                selectedAvatar = selectedAvatar,
+                purchasedAvatars = purchasedAvatars,
+                selectedNameIcon = selectedNameIcon,
+                purchasedNameIcons = purchasedNameIcons
             )
         } catch (e: Exception) {
             UserProfile(
                 uid = user.uid,
                 email = user.email.orEmpty(),
-                dailyXp = 0
+                dailyXp = 0,
+                skillBux = 0,
+                selectedTheme = "dark_red",
+                purchasedThemes = listOf("dark_red"),
+                selectedAvatar = "🙂",
+                purchasedAvatars = listOf("🙂"),
+                selectedNameIcon = "",
+                purchasedNameIcons = emptyList()
             )
         }
     }
@@ -588,6 +613,7 @@ class FirestoreRepository {
             val watchLaterCount = (doc.getLong("watchLaterCount") ?: 0L).toInt()
             val storedDailyXp = (doc.getLong("dailyXp") ?: 0L).toInt()
             val storedDailyXpDate = doc.getString("dailyXpDate").orEmpty()
+            val currentSkillBux = (doc.getLong("skillBux") ?: 0L).toInt()
             val email = doc.getString("email").orEmpty()
             val today = todayKey()
 
@@ -608,7 +634,7 @@ class FirestoreRepository {
                     )
                 ).await()
 
-                return UserProfile(
+                return getUserProfileModel().copy(
                     uid = userId,
                     email = email,
                     xp = currentXp,
@@ -616,7 +642,8 @@ class FirestoreRepository {
                     currentStreak = 0,
                     highestStreak = highestStreak,
                     watchLaterCount = watchLaterCount,
-                    dailyXp = currentDailyXp
+                    dailyXp = currentDailyXp,
+                    skillBux = currentSkillBux
                 )
             }
 
@@ -657,7 +684,11 @@ class FirestoreRepository {
             val newXp = currentXp + totalXpToAdd
             val newDailyXp = currentDailyXp + totalXpToAdd
             val newHighestStreak = maxOf(highestStreak, newCurrentStreak)
+            val oldLevel = calculateLevelFromXp(currentXp)
             val levelProgress = getLevelProgress(newXp)
+            val levelsGained = (levelProgress.level - oldLevel).coerceAtLeast(0)
+            val skillBuxEarned = levelsGained * 25
+            val newSkillBux = currentSkillBux + skillBuxEarned
 
             userRef.update(
                 mapOf(
@@ -667,11 +698,12 @@ class FirestoreRepository {
                     "highestStreak" to newHighestStreak,
                     "dailyXp" to newDailyXp,
                     "dailyXpDate" to today,
+                    "skillBux" to newSkillBux,
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
             ).await()
 
-            UserProfile(
+            getUserProfileModel().copy(
                 uid = userId,
                 email = email,
                 xp = newXp,
@@ -679,11 +711,105 @@ class FirestoreRepository {
                 currentStreak = newCurrentStreak,
                 highestStreak = newHighestStreak,
                 watchLaterCount = watchLaterCount,
-                dailyXp = newDailyXp
+                dailyXp = newDailyXp,
+                skillBux = newSkillBux
             )
         } catch (e: Exception) {
             getUserProfileModel()
         }
+    }
+
+    suspend fun applyTheme(themeId: String) {
+        val userId = currentUserId() ?: return
+        ensureUserProfileDocument()
+        db.collection("users").document(userId)
+            .update(
+                mapOf(
+                    "selectedTheme" to themeId,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+    }
+
+    suspend fun applyAvatar(avatar: String) {
+        val userId = currentUserId() ?: return
+        ensureUserProfileDocument()
+        db.collection("users").document(userId)
+            .update(
+                mapOf(
+                    "selectedAvatar" to avatar,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+    }
+
+    suspend fun applyNameIcon(icon: String) {
+        val userId = currentUserId() ?: return
+        ensureUserProfileDocument()
+        db.collection("users").document(userId)
+            .update(
+                mapOf(
+                    "selectedNameIcon" to icon,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+    }
+
+    suspend fun purchaseTheme(themeId: String, cost: Int): Boolean {
+        val userId = currentUserId() ?: return false
+        ensureUserProfileDocument()
+        val userRef = db.collection("users").document(userId)
+        val doc = userRef.get().await()
+        val skillBux = (doc.getLong("skillBux") ?: 0L).toInt()
+        val purchased = (doc.get("purchasedThemes") as? List<*>)?.mapNotNull { it?.toString() } ?: listOf("dark_red")
+        if (themeId in purchased) return true
+        if (skillBux < cost) return false
+        userRef.update(
+            mapOf(
+                "skillBux" to skillBux - cost,
+                "purchasedThemes" to purchased + themeId,
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+        ).await()
+        return true
+    }
+
+    suspend fun purchaseAvatar(avatar: String, cost: Int): Boolean {
+        val userId = currentUserId() ?: return false
+        ensureUserProfileDocument()
+        val userRef = db.collection("users").document(userId)
+        val doc = userRef.get().await()
+        val skillBux = (doc.getLong("skillBux") ?: 0L).toInt()
+        val purchased = (doc.get("purchasedAvatars") as? List<*>)?.mapNotNull { it?.toString() } ?: listOf("🙂")
+        if (avatar in purchased) return true
+        if (skillBux < cost) return false
+        userRef.update(
+            mapOf(
+                "skillBux" to skillBux - cost,
+                "purchasedAvatars" to purchased + avatar,
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+        ).await()
+        return true
+    }
+
+    suspend fun purchaseNameIcon(icon: String, cost: Int): Boolean {
+        val userId = currentUserId() ?: return false
+        ensureUserProfileDocument()
+        val userRef = db.collection("users").document(userId)
+        val doc = userRef.get().await()
+        val skillBux = (doc.getLong("skillBux") ?: 0L).toInt()
+        val purchased = (doc.get("purchasedNameIcons") as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
+        if (icon in purchased) return true
+        if (skillBux < cost) return false
+        userRef.update(
+            mapOf(
+                "skillBux" to skillBux - cost,
+                "purchasedNameIcons" to purchased + icon,
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+        ).await()
+        return true
     }
 
     suspend fun getLeaderboardData(): LeaderboardData {

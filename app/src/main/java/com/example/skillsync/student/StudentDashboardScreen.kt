@@ -59,6 +59,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -87,6 +88,7 @@ import com.example.skillsync.models.StudentFeedSubject
 import com.example.skillsync.models.StudentQuiz
 import com.example.skillsync.models.StudentQuizType
 import com.example.skillsync.models.UserProfile
+import com.example.skillsync.models.ShopItem
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -100,12 +102,13 @@ import androidx.compose.foundation.layout.width
 private sealed interface StudentDestination {
     data object Feed : StudentDestination
     data class Courses(val subjectIndex: Int, val courseIndex: Int) : StudentDestination
+    data object Shop : StudentDestination
     data object Profile : StudentDestination
     data object Leaderboards : StudentDestination
 }
 
 @Composable
-fun StudentDashboardScreen(onLogout: () -> Unit) {
+fun StudentDashboardScreen(onLogout: () -> Unit, onThemeChanged: (String) -> Unit) {
     val repo = remember { FirestoreRepository() }
     val userEmail = FirebaseAuth.getInstance().currentUser?.email.orEmpty()
     val currentUser = FirebaseAuth.getInstance().currentUser
@@ -172,20 +175,21 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
                     snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
                     bottomBar = {
                         NavigationBar(
-                            containerColor = Color(0xFFD62828),
-                            contentColor = Color.Black
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                            tonalElevation = 0.dp
                         ) {
                             NavigationBarItem(
                                 selected = destination is StudentDestination.Feed,
                                 onClick = { destination = StudentDestination.Feed },
-                                icon = { Icon(Icons.Default.Home, contentDescription = "Feed") },
-                                label = { Text("Feed") },
+                                icon = { Icon(Icons.Default.Home, contentDescription = "Feed", modifier = Modifier.size(20.dp)) },
+                                label = { Text("Feed", style = MaterialTheme.typography.labelSmall) },
                                 colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = Color.Black,
-                                    selectedTextColor = Color.Black,
-                                    unselectedIconColor = Color.Black,
-                                    unselectedTextColor = Color.Black,
-                                    indicatorColor = Color.White.copy(alpha = 0.22f)
+                                    selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                                    selectedTextColor = MaterialTheme.colorScheme.onPrimary,
+                                    unselectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                                    unselectedTextColor = MaterialTheme.colorScheme.onPrimary,
+                                    indicatorColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.24f)
                                 )
                             )
                             NavigationBarItem(
@@ -193,40 +197,53 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
                                 onClick = {
                                     destination = StudentDestination.Courses(safeSubjectIndex, safeCourseIndex)
                                 },
-                                icon = { Icon(Icons.Default.Person, contentDescription = "Courses") },
-                                label = { Text("Courses") },
+                                icon = { Icon(Icons.Default.Person, contentDescription = "Courses", modifier = Modifier.size(20.dp)) },
+                                label = { Text("Courses", style = MaterialTheme.typography.labelSmall) },
                                 colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = Color.Black,
-                                    selectedTextColor = Color.Black,
-                                    unselectedIconColor = Color.Black,
-                                    unselectedTextColor = Color.Black,
-                                    indicatorColor = Color.White.copy(alpha = 0.22f)
+                                    selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                                    selectedTextColor = MaterialTheme.colorScheme.onPrimary,
+                                    unselectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                                    unselectedTextColor = MaterialTheme.colorScheme.onPrimary,
+                                    indicatorColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.24f)
+                                )
+                            )
+                            NavigationBarItem(
+                                selected = destination is StudentDestination.Shop,
+                                onClick = { destination = StudentDestination.Shop },
+                                icon = { Icon(Icons.Default.BookmarkBorder, contentDescription = "Shop", modifier = Modifier.size(20.dp)) },
+                                label = { Text("Shop", style = MaterialTheme.typography.labelSmall) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                                    selectedTextColor = MaterialTheme.colorScheme.onPrimary,
+                                    unselectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                                    unselectedTextColor = MaterialTheme.colorScheme.onPrimary,
+                                    indicatorColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.24f)
                                 )
                             )
                             NavigationBarItem(
                                 selected = destination is StudentDestination.Leaderboards,
                                 onClick = { destination = StudentDestination.Leaderboards },
-                                icon = { Icon(Icons.Default.EmojiEvents, contentDescription = "Leaderboards") },
-                                label = { Text("Leaderboards") },
+                                icon = { Icon(Icons.Default.EmojiEvents, contentDescription = "Leaderboards", modifier = Modifier.size(20.dp)) },
+                                label = { Text("Leaders", style = MaterialTheme.typography.labelSmall, maxLines = 1) },
                                 colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = Color.Black,
-                                    selectedTextColor = Color.Black,
-                                    unselectedIconColor = Color.Black,
-                                    unselectedTextColor = Color.Black,
-                                    indicatorColor = Color.White.copy(alpha = 0.22f)
+                                    selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                                    selectedTextColor = MaterialTheme.colorScheme.onPrimary,
+                                    unselectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                                    unselectedTextColor = MaterialTheme.colorScheme.onPrimary,
+                                    indicatorColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.24f)
                                 )
                             )
                             NavigationBarItem(
                                 selected = destination is StudentDestination.Profile,
                                 onClick = { destination = StudentDestination.Profile },
-                                icon = { Icon(Icons.Default.Bookmark, contentDescription = "Profile") },
-                                label = { Text("Profile") },
+                                icon = { Icon(Icons.Default.Bookmark, contentDescription = "Profile", modifier = Modifier.size(20.dp)) },
+                                label = { Text("Profile", style = MaterialTheme.typography.labelSmall) },
                                 colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = Color.Black,
-                                    selectedTextColor = Color.Black,
-                                    unselectedIconColor = Color.Black,
-                                    unselectedTextColor = Color.Black,
-                                    indicatorColor = Color.White.copy(alpha = 0.22f)
+                                    selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                                    selectedTextColor = MaterialTheme.colorScheme.onPrimary,
+                                    unselectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                                    unselectedTextColor = MaterialTheme.colorScheme.onPrimary,
+                                    indicatorColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.24f)
                                 )
                             )
                         }
@@ -300,6 +317,54 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
                             onLogout = onLogout
                         )
 
+                        StudentDestination.Shop -> ShopScreen(
+                            modifier = Modifier.padding(innerPadding),
+                            profile = userProfile,
+                            onPurchaseTheme = { themeId, cost ->
+                                val purchased = withContext(Dispatchers.IO) { repo.purchaseTheme(themeId, cost) }
+                                if (purchased) {
+                                    refreshSubjects()
+                                    snackbarHostState.showSnackbar("Theme unlocked")
+                                } else {
+                                    snackbarHostState.showSnackbar("Not enough SkillBux")
+                                }
+                            },
+                            onApplyTheme = { themeId ->
+                                withContext(Dispatchers.IO) { repo.applyTheme(themeId) }
+                                onThemeChanged(themeId)
+                                refreshSubjects()
+                                snackbarHostState.showSnackbar("Theme applied")
+                            },
+                            onPurchaseAvatar = { avatar, cost ->
+                                val purchased = withContext(Dispatchers.IO) { repo.purchaseAvatar(avatar, cost) }
+                                if (purchased) {
+                                    refreshSubjects()
+                                    snackbarHostState.showSnackbar("Avatar unlocked")
+                                } else {
+                                    snackbarHostState.showSnackbar("Not enough SkillBux")
+                                }
+                            },
+                            onApplyAvatar = { avatar ->
+                                withContext(Dispatchers.IO) { repo.applyAvatar(avatar) }
+                                refreshSubjects()
+                                snackbarHostState.showSnackbar("Avatar applied")
+                            },
+                            onPurchaseNameIcon = { icon, cost ->
+                                val purchased = withContext(Dispatchers.IO) { repo.purchaseNameIcon(icon, cost) }
+                                if (purchased) {
+                                    refreshSubjects()
+                                    snackbarHostState.showSnackbar("Name icon unlocked")
+                                } else {
+                                    snackbarHostState.showSnackbar("Not enough SkillBux")
+                                }
+                            },
+                            onApplyNameIcon = { icon ->
+                                withContext(Dispatchers.IO) { repo.applyNameIcon(icon) }
+                                refreshSubjects()
+                                snackbarHostState.showSnackbar("Name icon applied")
+                            }
+                        )
+
                         StudentDestination.Profile -> StudentAccountProfileScreen(
                             modifier = Modifier.padding(innerPadding),
                             userEmail = userEmail,
@@ -310,6 +375,9 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
                             level = userProfile.level,
                             xp = userProfile.xp,
                             streak = userProfile.currentStreak,
+                            skillBux = userProfile.skillBux,
+                            avatar = userProfile.selectedAvatar,
+                            nameIcon = userProfile.selectedNameIcon,
                             onLogout = onLogout
                         )
 
@@ -455,7 +523,7 @@ private fun CourseTabs(
     Column(modifier = modifier.fillMaxWidth()) {
         Text(
             text = "Courses",
-            color = Color.White,
+            color = MaterialTheme.colorScheme.onPrimary,
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(bottom = 8.dp)
@@ -492,7 +560,7 @@ private fun SubjectTabs(
     Column(modifier = modifier.fillMaxWidth()) {
         Text(
             text = "Subjects",
-            color = Color.White,
+            color = MaterialTheme.colorScheme.onPrimary,
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(bottom = 8.dp)
@@ -553,7 +621,7 @@ private fun LessonFeedPage(
                 TextButton(onClick = onOpenProfile) {
                     Text(
                         text = item.course.courseTitle,
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onPrimary,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -562,7 +630,7 @@ private fun LessonFeedPage(
 
             Text(
                 text = item.lesson.lessonTitle,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onPrimary,
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(top = 8.dp)
@@ -570,7 +638,7 @@ private fun LessonFeedPage(
 
             Text(
                 text = subjectName,
-                color = Color.White.copy(alpha = 0.85f),
+                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f),
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = 4.dp)
             )
@@ -578,7 +646,7 @@ private fun LessonFeedPage(
             if (item.course.courseDescription.isNotBlank()) {
                 Text(
                     text = item.course.courseDescription,
-                    color = Color.White.copy(alpha = 0.9f),
+                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f),
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -918,7 +986,7 @@ private fun StudentProfileScreen(
             ) {
                 Text(
                     text = course?.courseTitle?.take(1)?.uppercase().orEmpty(),
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onPrimary,
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold
                 )
@@ -982,16 +1050,16 @@ private fun StudentProfileScreen(
                         )
                     },
                     colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = Color(0xFFD62828),
-                        selectedLabelColor = Color.White,
+                        selectedContainerColor = MaterialTheme.colorScheme.primary,
+                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
                         containerColor = Color.Transparent,
-                        labelColor = Color.White
+                        labelColor = MaterialTheme.colorScheme.onBackground
                     ),
                     border = FilterChipDefaults.filterChipBorder(
                         enabled = true,
                         selected = index == safeCourseIndex,
-                        borderColor = Color(0xFFFFD54F),
-                        selectedBorderColor = Color(0xFFFFD54F),
+                        borderColor = MaterialTheme.colorScheme.secondary,
+                        selectedBorderColor = MaterialTheme.colorScheme.secondary,
                         borderWidth = 1.dp,
                         selectedBorderWidth = 1.dp
                     )
@@ -1048,7 +1116,7 @@ private fun StudentProfileScreen(
 
                         Text(
                             text = lesson.lessonTitle,
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onPrimary,
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 2,
@@ -1088,16 +1156,16 @@ private fun SubjectSection(
                     onClick = { onSwitchSubject(index) },
                     label = { Text(subject.subjectName) },
                     colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = Color(0xFFD62828),
-                        selectedLabelColor = Color.White,
+                        selectedContainerColor = MaterialTheme.colorScheme.primary,
+                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
                         containerColor = Color.Transparent,
-                        labelColor = Color.White
+                        labelColor = MaterialTheme.colorScheme.onBackground
                     ),
                     border = FilterChipDefaults.filterChipBorder(
                         enabled = true,
                         selected = index == selectedSubjectIndex,
-                        borderColor = Color(0xFFFFD54F),
-                        selectedBorderColor = Color(0xFFFFD54F),
+                        borderColor = MaterialTheme.colorScheme.secondary,
+                        selectedBorderColor = MaterialTheme.colorScheme.secondary,
                         borderWidth = 1.dp,
                         selectedBorderWidth = 1.dp
                     )
@@ -1138,6 +1206,9 @@ private fun StudentAccountProfileScreen(
     level: Int,
     xp: Int,
     streak: Int,
+    skillBux: Int,
+    avatar: String,
+    nameIcon: String,
     onLogout: () -> Unit
 ) {
     Column(
@@ -1156,8 +1227,8 @@ private fun StudentAccountProfileScreen(
                 .fillMaxWidth()
                 .padding(top = 16.dp),
             shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFFDAA520)),
-            border = androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFB71C1C)),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondary),
+            border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary),
             elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
@@ -1169,7 +1240,7 @@ private fun StudentAccountProfileScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = (displayName.ifBlank { userEmail }.take(1).uppercase()),
+                        text = avatar,
                         color = Color.Black,
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold
@@ -1177,7 +1248,9 @@ private fun StudentAccountProfileScreen(
                 }
 
                 Text(
-                    text = if (displayName.isBlank()) "Student" else displayName,
+                    text = listOf(nameIcon, if (displayName.isBlank()) "Student" else displayName)
+                        .filter { it.isNotBlank() }
+                        .joinToString(" "),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = Color.Black,
@@ -1231,6 +1304,9 @@ private fun StudentAccountProfileScreen(
             item {
                 ProfileStatCard(title = "Saved", value = savedLessonsCount.toString())
             }
+            item {
+                ProfileStatCard(title = "SkillBux", value = skillBux.toString())
+            }
 
         }
 
@@ -1244,6 +1320,131 @@ private fun StudentAccountProfileScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Logout")
+        }
+    }
+}
+
+@Composable
+private fun ShopScreen(
+    modifier: Modifier = Modifier,
+    profile: UserProfile,
+    onPurchaseTheme: suspend (String, Int) -> Unit,
+    onApplyTheme: suspend (String) -> Unit,
+    onPurchaseAvatar: suspend (String, Int) -> Unit,
+    onApplyAvatar: suspend (String) -> Unit,
+    onPurchaseNameIcon: suspend (String, Int) -> Unit,
+    onApplyNameIcon: suspend (String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    val themes = listOf(
+        ShopItem("dark_red", "Midnight Red", "Dark black + red", 0, "dark_red" in profile.purchasedThemes, profile.selectedTheme == "dark_red"),
+        ShopItem("dark_blue", "Midnight Blue", "Dark black + blue", 40, "dark_blue" in profile.purchasedThemes, profile.selectedTheme == "dark_blue"),
+        ShopItem("dark_green", "Midnight Green", "Dark black + green", 40, "dark_green" in profile.purchasedThemes, profile.selectedTheme == "dark_green"),
+        ShopItem("light_red", "Ivory Red", "Light white + red", 60, "light_red" in profile.purchasedThemes, profile.selectedTheme == "light_red"),
+        ShopItem("light_blue", "Ivory Blue", "Light white + blue", 60, "light_blue" in profile.purchasedThemes, profile.selectedTheme == "light_blue"),
+        ShopItem("light_green", "Ivory Green", "Light white + green", 60, "light_green" in profile.purchasedThemes, profile.selectedTheme == "light_green")
+    )
+    val avatars = listOf("🙂" to 0, "😎" to 20, "🧠" to 25, "👑" to 35, "🚀" to 35, "🐯" to 45)
+    val nameIcons = listOf("🔥" to 20, "⚡" to 20, "👑" to 30, "🎯" to 25, "🏆" to 35)
+
+    LazyColumn(
+        modifier = modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondary),
+                border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Shop", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = Color.Black)
+                    Text("SkillBux balance", color = Color.Black.copy(alpha = 0.8f), modifier = Modifier.padding(top = 4.dp))
+                    Text(profile.skillBux.toString(), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, color = Color.Black, modifier = Modifier.padding(top = 8.dp))
+                }
+            }
+        }
+        item { ShopSectionTitle("Themes") }
+        items(themes) { item ->
+            ShopActionCard(
+                title = item.title,
+                subtitle = item.subtitle,
+                trailing = if (item.owned) if (item.applied) "Applied" else "Apply" else "${item.cost} SkillBux",
+                onClick = {
+                    scope.launch {
+                        if (item.owned) onApplyTheme(item.id) else onPurchaseTheme(item.id, item.cost)
+                    }
+                }
+            )
+        }
+        item { ShopSectionTitle("Profile Pictures") }
+        items(avatars) { (avatar, cost) ->
+            val owned = avatar in profile.purchasedAvatars
+            val applied = profile.selectedAvatar == avatar
+            ShopActionCard(
+                title = "$avatar Avatar",
+                subtitle = if (owned) "Unlocked" else "Unlock for $cost SkillBux",
+                trailing = if (owned) if (applied) "Applied" else "Apply" else "Buy",
+                onClick = {
+                    scope.launch {
+                        if (owned) onApplyAvatar(avatar) else onPurchaseAvatar(avatar, cost)
+                    }
+                }
+            )
+        }
+        item { ShopSectionTitle("Name Icons") }
+        items(nameIcons) { (icon, cost) ->
+            val owned = icon in profile.purchasedNameIcons
+            val applied = profile.selectedNameIcon == icon
+            ShopActionCard(
+                title = "$icon Name Icon",
+                subtitle = if (owned) "Unlocked" else "Unlock for $cost SkillBux",
+                trailing = if (owned) if (applied) "Applied" else "Apply" else "Buy",
+                onClick = {
+                    scope.launch {
+                        if (owned) onApplyNameIcon(icon) else onPurchaseNameIcon(icon, cost)
+                    }
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun ShopSectionTitle(title: String) {
+    Text(
+        text = title,
+        style = MaterialTheme.typography.titleLarge,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.padding(top = 4.dp)
+    )
+}
+
+@Composable
+private fun ShopActionCard(
+    title: String,
+    subtitle: String,
+    trailing: String,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary),
+        border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.secondary)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
+                Text(subtitle, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f), modifier = Modifier.padding(top = 4.dp))
+            }
+            Button(onClick = onClick) {
+                Text(trailing)
+            }
         }
     }
 }
@@ -1264,7 +1465,7 @@ private fun LeaderboardsScreen(
                 text = "Leaderboards",
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
-                color = Color.White
+                color = MaterialTheme.colorScheme.onPrimary
             )
         }
 
@@ -1306,27 +1507,27 @@ private fun LeaderboardCard(
 ) {
     Card(
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFD62828)),
-        border = androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFFFD54F))
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary),
+        border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.secondary)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                color = Color.White
+                color = MaterialTheme.colorScheme.onPrimary
             )
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFFFFF8E1),
+                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f),
                 modifier = Modifier.padding(top = 4.dp, bottom = 10.dp)
             )
 
             if (entries.isEmpty()) {
                 Text(
                     text = "No data yet",
-                    color = Color.White
+                    color = MaterialTheme.colorScheme.onPrimary
                 )
             } else {
                 entries.forEachIndexed { index, entry ->
@@ -1338,13 +1539,13 @@ private fun LeaderboardCard(
                     ) {
                         Text(
                             text = "${index + 1}.",
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onPrimary,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.width(28.dp)
                         )
                         Text(
                             text = entry.name,
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.weight(1f)
                         )
                         Text(
@@ -1366,8 +1567,8 @@ private fun ProfileStatCard(
 ) {
     Card(
         shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFD62828)),
-        border = androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFFFD54F)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary),
+        border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.secondary),
         elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
     ) {
         Column(
@@ -1378,13 +1579,13 @@ private fun ProfileStatCard(
             Text(
                 text = title,
                 style = MaterialTheme.typography.labelLarge,
-                color = Color(0xFFFFF8E1)
+                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f)
             )
             Text(
                 text = value,
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onPrimary,
                 modifier = Modifier.padding(top = 6.dp)
             )
         }
