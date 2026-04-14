@@ -356,25 +356,8 @@ private fun StudentFeedScreen(
 
     if (lessonPages.isEmpty()) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("No lessons found in this course")
+            Text("No lessons found")
         }
-
-        SubjectTabs(
-            subjects = subjects,
-            selectedSubjectIndex = selectedSubjectIndex,
-            onSelectSubject = onSelectSubject,
-            modifier = Modifier
-                .statusBarsPadding()
-                .padding(top = 8.dp, start = 12.dp, end = 12.dp)
-        )
-        CourseTabs(
-            courses = subject.courses,
-            selectedCourseIndex = safeCourseIndex,
-            onSelectCourse = onSelectCourse,
-            modifier = Modifier
-                .statusBarsPadding()
-                .padding(top = 62.dp, start = 12.dp, end = 12.dp)
-        )
         return
     }
 
@@ -511,7 +494,7 @@ private fun LessonFeedPage(
     onQuizAnswered: suspend () -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
-        VideoBackground(videoUrl = item.lesson.videoUrl)
+        VideoBackground(videoUrl = item.lesson.videoResId)
 
         Box(
             modifier = Modifier
@@ -804,7 +787,7 @@ private fun QuizOverlay(
 }
 
 @Composable
-private fun VideoBackground(videoUrl: String) {
+private fun VideoBackground(videoUrl: Int) {
     var isPaused by remember(videoUrl) { mutableStateOf(false) }
 
     AndroidView(
@@ -815,14 +798,7 @@ private fun VideoBackground(videoUrl: String) {
             },
         factory = { context ->
             VideoView(context).apply {
-                val uri = if (videoUrl.startsWith("res://raw/")) {
-                    val resName = videoUrl.removePrefix("res://raw/")
-                    val resId = context.resources.getIdentifier(resName, "raw", context.packageName)
-                    Uri.parse("android.resource://${context.packageName}/$resId")
-                } else {
-                    Uri.parse(videoUrl)
-                }
-
+                val uri = Uri.parse("android.resource://${context.packageName}/$videoUrl")
                 tag = videoUrl
                 setVideoURI(uri)
                 setOnPreparedListener { mediaPlayer ->
@@ -835,14 +811,7 @@ private fun VideoBackground(videoUrl: String) {
         },
         update = { videoView ->
             if (videoView.tag != videoUrl) {
-                val uri = if (videoUrl.startsWith("res://raw/")) {
-                    val resName = videoUrl.removePrefix("res://raw/")
-                    val resId = videoView.context.resources.getIdentifier(resName, "raw", videoView.context.packageName)
-                    Uri.parse("android.resource://${videoView.context.packageName}/$resId")
-                } else {
-                    Uri.parse(videoUrl)
-                }
-
+                val uri = Uri.parse("android.resource://${videoView.context.packageName}/$videoUrl")
                 videoView.tag = videoUrl
                 videoView.setVideoURI(uri)
                 videoView.setOnPreparedListener { mediaPlayer ->
@@ -938,9 +907,19 @@ private fun StudentProfileScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp)
             )
+            Text(
+                text = "Subject progress: ${subject.completedCourses}/${subject.totalCourses} courses completed (${subject.completionPercent}%)",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp)
+            )
             if (!course?.courseDescription.isNullOrBlank()) {
                 Text(text = course?.courseDescription.orEmpty(), modifier = Modifier.padding(top = 8.dp))
             }
+            Text(
+                text = "Course progress: ${course?.completedLessons ?: 0}/${course?.totalLessons ?: 0} lessons completed (${course?.completionPercent ?: 0}%)",
+                modifier = Modifier.padding(top = 8.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
 
         SubjectSection(
@@ -1224,12 +1203,7 @@ private fun StudentAccountProfileScreen(
             item {
                 ProfileStatCard(title = "Saved", value = savedLessonsCount.toString())
             }
-            item {
-                ProfileStatCard(title = "Courses", value = totalCoursesCount.toString())
-            }
-            item {
-                ProfileStatCard(title = "Lessons", value = totalLessonsCount.toString())
-            }
+
         }
 
         Spacer(modifier = Modifier.height(20.dp))

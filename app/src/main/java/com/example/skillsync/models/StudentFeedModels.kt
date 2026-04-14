@@ -5,7 +5,10 @@ import androidx.annotation.DrawableRes
 data class StudentFeedSubject(
     val subjectId: String,
     val subjectName: String,
-    val courses: List<StudentFeedCourse>
+    val courses: List<StudentFeedCourse>,
+    val completionPercent: Int = 0,
+    val completedCourses: Int = 0,
+    val totalCourses: Int = 0
 )
 
 data class StudentFeedCourse(
@@ -14,7 +17,10 @@ data class StudentFeedCourse(
     val courseId: String,
     val courseTitle: String,
     val courseDescription: String,
-    val lessons: List<StudentFeedLesson>
+    val lessons: List<StudentFeedLesson>,
+    val completionPercent: Int = 0,
+    val completedLessons: Int = 0,
+    val totalLessons: Int = 0
 )
 
 data class StudentFeedLesson(
@@ -22,9 +28,10 @@ data class StudentFeedLesson(
     val lessonTitle: String,
     val lessonOrder: Int,
     val quiz: StudentQuiz,
-    val videoUrl: String, // Can be a Firebase URL or "res://raw/name"
+    @DrawableRes val videoResId: Int,
     @DrawableRes val thumbnailResId: Int,
-    val isSaved: Boolean = false
+    val isSaved: Boolean = false,
+    val isCompleted: Boolean = false
 )
 
 data class StudentQuiz(

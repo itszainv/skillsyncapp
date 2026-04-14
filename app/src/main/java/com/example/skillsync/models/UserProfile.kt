@@ -43,7 +43,7 @@ data class WatchLaterLesson(
                 explanation = explanation,
                 type = parsedQuizType
             ),
-            videoUrl = videoUrl,
+            videoResId = videoUrl.toIntOrNull() ?: com.example.skillsync.R.raw.video1,
             thumbnailResId = thumbnailResId,
             isSaved = true
         )

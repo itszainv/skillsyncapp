@@ -1,6 +1,5 @@
 package com.example.skillsync.data
 
-import android.net.Uri
 import com.example.skillsync.models.Course
 import com.example.skillsync.models.Lesson
 import com.example.skillsync.models.StudentFeedCourse
@@ -19,6 +18,94 @@ import com.google.firebase.firestore.firestore
 import kotlinx.coroutines.tasks.await
 
 class FirestoreRepository {
+
+    private data class LevelProgress(
+        val level: Int,
+        val xpIntoCurrentLevel: Int,
+        val xpRequiredForNextLevel: Int
+    )
+
+    private fun getLevelProgress(totalXp: Int): LevelProgress {
+        var level = 1
+        var xpRequired = 10
+        var remainingXp = totalXp.coerceAtLeast(0)
+
+        while (level < 20 && remainingXp >= xpRequired) {
+            remainingXp -= xpRequired
+            level++
+            xpRequired += 10
+        }
+
+        return if (level >= 20) {
+            LevelProgress(
+                level = 20,
+                xpIntoCurrentLevel = 0,
+                xpRequiredForNextLevel = 0
+            )
+        } else {
+            LevelProgress(
+                level = level,
+                xpIntoCurrentLevel = remainingXp,
+                xpRequiredForNextLevel = xpRequired
+            )
+        }
+    }
+
+    private fun calculateLevelFromXp(totalXp: Int): Int {
+        return getLevelProgress(totalXp).level
+    }
+
+    private suspend fun getCompletedLessonIds(): Set<String> {
+        val userId = currentUserId() ?: return emptySet()
+        return try {
+            db.collection("users")
+                .document(userId)
+                .collection("completedLessons")
+                .get()
+                .await()
+                .documents
+                .map { it.id }
+                .toSet()
+        } catch (e: Exception) {
+            emptySet()
+        }
+    }
+
+    private suspend fun claimProgressMilestoneIfNeeded(
+        userId: String,
+        type: String,
+        entityId: String,
+        completionPercent: Int
+    ): Int {
+        val milestones = listOf(25, 50, 75, 100)
+        var bonusXp = 0
+
+        for (milestone in milestones) {
+            if (completionPercent >= milestone) {
+                val claimId = "${type}_${entityId}_$milestone"
+                val claimRef = db.collection("users")
+                    .document(userId)
+                    .collection("claimedMilestones")
+                    .document(claimId)
+
+                val existing = claimRef.get().await()
+                if (!existing.exists()) {
+                    claimRef.set(
+                        mapOf(
+                            "type" to type,
+                            "entityId" to entityId,
+                            "milestone" to milestone,
+                            "claimedAt" to FieldValue.serverTimestamp()
+                        )
+                    ).await()
+                    bonusXp += 15
+                }
+            }
+        }
+
+        return bonusXp
+    }
+
     private val db: FirebaseFirestore = Firebase.firestore
 
     companion object {
@@ -122,10 +209,9 @@ class FirestoreRepository {
     }
 
     suspend fun getStudentFeedSubjects(): List<StudentFeedSubject> {
-        // Fallback hardcoded videos (now as resource strings)
-        val fallbackVideoUrls = listOf(
-            "res://raw/video1",
-            "res://raw/video2"
+        val videoIds = listOf(
+            com.example.skillsync.R.raw.video1,
+            com.example.skillsync.R.raw.video2
         )
         val thumbnailIds = listOf(
             com.example.skillsync.R.drawable.example_cover,
@@ -135,29 +221,32 @@ class FirestoreRepository {
         return try {
             val savedLessons = getWatchLaterLessons()
             val savedLessonIds = savedLessons.map { it.lessonId }.toSet()
+            val completedLessonIds = getCompletedLessonIds()
 
             val regularSubjects = getSubjects().mapIndexed { subjectIndex, subject ->
                 val courses = getCourses(subject.id).mapIndexed { courseIndex, course ->
-                    val lessons = getLessons(subject.id, course.id)
-                        .sortedBy { it.order }
-                        .mapIndexed { lessonIndex, lesson ->
-                            // Check if the lesson has a videoUrl stored in Firestore (future-proofing)
-                            // Note: We might need to update the Lesson model to include videoUrl
-                            val videoUrlFromDb = lesson.components.firstOrNull()?.get("videoUrl")?.toString()
-                            
-                            val mediaIndex = if (fallbackVideoUrls.isEmpty()) 0
-                            else (subjectIndex + courseIndex + lessonIndex) % fallbackVideoUrls.size
+                    val rawLessons = getLessons(subject.id, course.id).sortedBy { it.order }
 
-                            StudentFeedLesson(
-                                lessonId = lesson.id,
-                                lessonTitle = lesson.title.ifBlank { "Lesson ${lessonIndex + 1}" },
-                                lessonOrder = lesson.order,
-                                quiz = buildStudentQuiz(lesson),
-                                videoUrl = videoUrlFromDb ?: fallbackVideoUrls[mediaIndex],
-                                thumbnailResId = thumbnailIds[mediaIndex % thumbnailIds.size],
-                                isSaved = lesson.id in savedLessonIds
-                            )
-                        }
+                    val lessons = rawLessons.mapIndexed { lessonIndex, lesson ->
+                        val mediaIndex = if (videoIds.isEmpty()) 0
+                        else (subjectIndex + courseIndex + lessonIndex) % videoIds.size
+
+                        StudentFeedLesson(
+                            lessonId = lesson.id,
+                            lessonTitle = lesson.title.ifBlank { "Lesson ${lessonIndex + 1}" },
+                            lessonOrder = lesson.order,
+                            quiz = buildStudentQuiz(lesson),
+                            videoResId = videoIds[mediaIndex],
+                            thumbnailResId = thumbnailIds[mediaIndex % thumbnailIds.size],
+                            isSaved = lesson.id in savedLessonIds,
+                            isCompleted = lesson.id in completedLessonIds
+                        )
+                    }
+
+                    val totalLessons = lessons.size
+                    val completedLessons = lessons.count { it.isCompleted }
+                    val courseCompletionPercent =
+                        if (totalLessons == 0) 0 else (completedLessons * 100) / totalLessons
 
                     StudentFeedCourse(
                         subjectId = subject.id,
@@ -165,14 +254,26 @@ class FirestoreRepository {
                         courseId = course.id,
                         courseTitle = course.title,
                         courseDescription = course.description,
-                        lessons = lessons
+                        lessons = lessons,
+                        completionPercent = courseCompletionPercent,
+                        completedLessons = completedLessons,
+                        totalLessons = totalLessons
                     )
                 }
+
+                val totalCourses = courses.size
+                val completedCourses =
+                    courses.count { it.totalLessons > 0 && it.completedLessons == it.totalLessons }
+                val subjectCompletionPercent =
+                    if (totalCourses == 0) 0 else (completedCourses * 100) / totalCourses
 
                 StudentFeedSubject(
                     subjectId = subject.id,
                     subjectName = subject.name,
-                    courses = courses
+                    courses = courses,
+                    completionPercent = subjectCompletionPercent,
+                    completedCourses = completedCourses,
+                    totalCourses = totalCourses
                 )
             }
 
@@ -216,7 +317,7 @@ class FirestoreRepository {
                     correctAnswerIndex = lesson.quiz.correctAnswerIndex,
                     explanation = lesson.quiz.explanation,
                     quizType = lesson.quiz.type.name,
-                    videoUrl = lesson.videoUrl,
+                    videoUrl = lesson.videoResId.toString(),
                     thumbnailResId = lesson.thumbnailResId,
                     savedAt = System.currentTimeMillis()
                 )
@@ -243,9 +344,27 @@ class FirestoreRepository {
                 .get()
                 .await()
 
-            snapshot.documents.mapNotNull { doc ->
-                doc.toObject(WatchLaterLesson::class.java)?.copy(
-                    lessonId = doc.getString("lessonId").orEmpty()
+            snapshot.documents.map { doc ->
+                WatchLaterLesson(
+                    lessonId = doc.getString("lessonId").orEmpty(),
+                    subjectId = doc.getString("subjectId").orEmpty(),
+                    subjectName = doc.getString("subjectName").orEmpty(),
+                    courseId = doc.getString("courseId").orEmpty(),
+                    courseTitle = doc.getString("courseTitle").orEmpty(),
+                    courseDescription = doc.getString("courseDescription").orEmpty(),
+                    lessonTitle = doc.getString("lessonTitle").orEmpty(),
+                    lessonOrder = (doc.getLong("lessonOrder") ?: 0L).toInt(),
+                    question = doc.getString("question").orEmpty(),
+                    options = (doc.get("options") as? List<*>)
+                        ?.mapNotNull { it?.toString() }
+                        .orEmpty(),
+                    correctAnswerIndex = (doc.getLong("correctAnswerIndex") ?: 0L).toInt(),
+                    explanation = doc.getString("explanation").orEmpty(),
+                    quizType = doc.getString("quizType").orEmpty(),
+                    videoUrl = doc.getString("videoUrl")
+                        ?: (doc.getLong("videoResId")?.toString().orEmpty()),
+                    thumbnailResId = (doc.getLong("thumbnailResId") ?: 0L).toInt(),
+                    savedAt = doc.getLong("savedAt") ?: 0L
                 )
             }.sortedByDescending { it.savedAt }
         } catch (e: Exception) {
@@ -264,9 +383,36 @@ class FirestoreRepository {
                     courseId = WATCH_LATER_COURSE_ID,
                     courseTitle = "Saved Lessons",
                     courseDescription = "Lessons you saved to watch later.",
-                    lessons = savedLessons.map { it.toStudentFeedLesson() }
+                    lessons = savedLessons.map { saved ->
+                        StudentFeedLesson(
+                            lessonId = saved.lessonId,
+                            lessonTitle = saved.lessonTitle,
+                            lessonOrder = saved.lessonOrder,
+                            quiz = StudentQuiz(
+                                question = saved.question,
+                                options = saved.options,
+                                correctAnswerIndex = saved.correctAnswerIndex,
+                                explanation = saved.explanation,
+                                type = when (saved.quizType) {
+                                    StudentQuizType.TRUE_FALSE.name -> StudentQuizType.TRUE_FALSE
+                                    StudentQuizType.INFO.name -> StudentQuizType.INFO
+                                    else -> StudentQuizType.MULTIPLE_CHOICE
+                                }
+                            ),
+                            videoResId = saved.videoUrl.toIntOrNull() ?: com.example.skillsync.R.raw.video1,
+                            thumbnailResId = saved.thumbnailResId,
+                            isSaved = true,
+                            isCompleted = false
+                        )
+                    },
+                    completionPercent = 0,
+                    completedLessons = 0,
+                    totalLessons = savedLessons.size
                 )
-            )
+            ),
+            completionPercent = 0,
+            completedCourses = 0,
+            totalCourses = 1
         )
     }
 
@@ -328,41 +474,6 @@ class FirestoreRepository {
         }
     }
 
-    private data class LevelProgress(
-        val level: Int,
-        val xpIntoCurrentLevel: Int,
-        val xpRequiredForNextLevel: Int
-    )
-
-    private fun getLevelProgress(totalXp: Int): LevelProgress {
-        var level = 1
-        var xpRequired = 10
-        var remainingXp = totalXp.coerceAtLeast(0)
-
-        while (level < 20 && remainingXp >= xpRequired) {
-            remainingXp -= xpRequired
-            level++
-            xpRequired += 10
-        }
-
-        return if (level >= 20) {
-            LevelProgress(
-                level = 20,
-                xpIntoCurrentLevel = 0,
-                xpRequiredForNextLevel = 0
-            )
-        } else {
-            LevelProgress(
-                level = level,
-                xpIntoCurrentLevel = remainingXp,
-                xpRequiredForNextLevel = xpRequired
-            )
-        }
-    }
-
-    private fun calculateLevelFromXp(totalXp: Int): Int {
-        return getLevelProgress(totalXp).level
-    }
 
     suspend fun getUserProfileModel(): UserProfile {
         val user = Firebase.auth.currentUser ?: return UserProfile()
@@ -452,22 +563,43 @@ class FirestoreRepository {
         ensureUserProfileDocument()
 
         val userRef = db.collection("users").document(userId)
-        val answeredRef = userRef.collection("answeredLessons").document(lessonId)
+        val completedRef = userRef.collection("completedLessons").document(lessonId)
 
         return try {
-            val alreadyAnswered = answeredRef.get().await().exists()
-            if (alreadyAnswered) {
-                return getUserProfileModel()
-            }
-
             val doc = userRef.get().await()
+
             val currentXp = (doc.getLong("xp") ?: 0L).toInt()
             val currentStreak = (doc.getLong("currentStreak") ?: 0L).toInt()
             val highestStreak = (doc.getLong("highestStreak") ?: 0L).toInt()
             val watchLaterCount = (doc.getLong("watchLaterCount") ?: 0L).toInt()
             val email = doc.getString("email").orEmpty()
 
-            val newCurrentStreak = if (isCorrect) currentStreak + 1 else 0
+            val alreadyCompleted = completedRef.get().await().exists()
+
+            if (alreadyCompleted) {
+                return getUserProfileModel()
+            }
+
+            if (!isCorrect) {
+                userRef.update(
+                    mapOf(
+                        "currentStreak" to 0,
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    )
+                ).await()
+
+                return UserProfile(
+                    uid = userId,
+                    email = email,
+                    xp = currentXp,
+                    level = calculateLevelFromXp(currentXp),
+                    currentStreak = 0,
+                    highestStreak = highestStreak,
+                    watchLaterCount = watchLaterCount
+                )
+            }
+
+            val newCurrentStreak = currentStreak + 1
             val multiplier = when {
                 newCurrentStreak >= 5 -> 2.0
                 newCurrentStreak >= 3 -> 1.5
@@ -476,8 +608,40 @@ class FirestoreRepository {
             }
 
             val baseXp = 5
-            val xpEarned = if (isCorrect) (baseXp * multiplier).toInt() else 0
-            val newXp = currentXp + xpEarned
+            val quizXp = (baseXp * multiplier).toInt()
+
+            completedRef.set(
+                mapOf(
+                    "completedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+
+            val refreshedSubjects = getStudentFeedSubjects()
+            val subject =
+                refreshedSubjects.firstOrNull { s -> s.courses.any { c -> c.lessons.any { it.lessonId == lessonId } } }
+            val course =
+                subject?.courses?.firstOrNull { c -> c.lessons.any { it.lessonId == lessonId } }
+
+            val courseBonus = if (course != null) {
+                claimProgressMilestoneIfNeeded(
+                    userId,
+                    "course",
+                    course.courseId,
+                    course.completionPercent
+                )
+            } else 0
+
+            val subjectBonus = if (subject != null) {
+                claimProgressMilestoneIfNeeded(
+                    userId,
+                    "subject",
+                    subject.subjectId,
+                    subject.completionPercent
+                )
+            } else 0
+
+            val totalXpToAdd = quizXp + courseBonus + subjectBonus
+            val newXp = currentXp + totalXpToAdd
             val newHighestStreak = maxOf(highestStreak, newCurrentStreak)
             val levelProgress = getLevelProgress(newXp)
 
@@ -488,14 +652,6 @@ class FirestoreRepository {
                     "currentStreak" to newCurrentStreak,
                     "highestStreak" to newHighestStreak,
                     "updatedAt" to FieldValue.serverTimestamp()
-                )
-            ).await()
-
-            answeredRef.set(
-                mapOf(
-                    "isCorrect" to isCorrect,
-                    "xpEarned" to xpEarned,
-                    "answeredAt" to FieldValue.serverTimestamp()
                 )
             ).await()
 
@@ -511,44 +667,5 @@ class FirestoreRepository {
         } catch (e: Exception) {
             getUserProfileModel()
         }
-    }
-
-    suspend fun markLessonComplete(lessonId: String, score: Int, total: Int) {
-        val userId = currentUserId() ?: return
-        try {
-            db.collection("users/$userId/progress").document(lessonId).set(
-                mapOf(
-                    "completed" to true,
-                    "score" to score,
-                    "total" to total,
-                    "completedAt" to FieldValue.serverTimestamp()
-                )
-            ).await()
-        } catch (_: Exception) {
-        }
-    }
-
-    suspend fun getLessonProgress(lessonId: String): Map<String, Any>? {
-        val userId = currentUserId() ?: return null
-        return try {
-            val doc = db.collection("users/$userId/progress").document(lessonId).get().await()
-            if (doc.exists()) doc.data else null
-        } catch (e: Exception) {
-            null
-        }
-    }
-
-    private fun getLevelInfo(totalXp: Int): Pair<Int, Int> {
-        var level = 1
-        var xpNeeded = 10
-        var remainingXp = totalXp
-
-        while (level < 20 && remainingXp >= xpNeeded) {
-            remainingXp -= xpNeeded
-            level++
-            xpNeeded += 10
-        }
-
-        return level to xpNeeded // (current level, xp needed for NEXT level)
     }
 }
