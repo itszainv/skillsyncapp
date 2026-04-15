@@ -13,6 +13,9 @@ data class Course(
     val order: Int = 0
 )
 
+/*
+videoUrl stores a network address which is streamed directly by the VideoView in the dashboard.
+*/
 data class Lesson(
     val id: String = "",
     val title: String = "",

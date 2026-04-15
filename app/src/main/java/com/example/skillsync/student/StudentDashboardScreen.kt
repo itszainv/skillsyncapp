@@ -590,7 +590,7 @@ private fun LessonFeedPage(
     onQuizAnswered: suspend () -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
-        VideoBackground(videoUrl = item.lesson.videoResId)
+        VideoBackground(videoUrl = item.lesson.videoUrl)
 
         Box(
             modifier = Modifier
@@ -883,22 +883,35 @@ private fun QuizOverlay(
 }
 
 @Composable
-private fun VideoBackground(videoUrl: Int) {
+private fun VideoBackground(videoUrl: String) {
+    // keeps track of whether the video is paused or playing
+    // resets if the video URL changes
     var isPaused by remember(videoUrl) { mutableStateOf(false) }
 
     AndroidView(
         modifier = Modifier
             .fillMaxSize()
+            // tap anywhere on the screen to pause/play the video
             .clickable {
                 isPaused = !isPaused
             },
         factory = { context ->
             VideoView(context).apply {
-                val uri = Uri.parse("android.resource://${context.packageName}/$videoUrl")
+                // convert the string URL into a URI so VideoView can use it
+                val uri = Uri.parse(videoUrl)
+
+                // store the current video URL so we can compare later
                 tag = videoUrl
+
+                // set the video source
                 setVideoURI(uri)
+
+                // runs when the video is ready to play
                 setOnPreparedListener { mediaPlayer ->
+                    // loop the video so it keeps playing in the background
                     mediaPlayer.isLooping = true
+
+                    // only start if it's not paused
                     if (!isPaused) {
                         start()
                     }
@@ -906,10 +919,17 @@ private fun VideoBackground(videoUrl: Int) {
             }
         },
         update = { videoView ->
+            // if the video URL changed, reload the video
             if (videoView.tag != videoUrl) {
-                val uri = Uri.parse("android.resource://${videoView.context.packageName}/$videoUrl")
+                val uri = Uri.parse(videoUrl)
+
+                // update tag to new URL
                 videoView.tag = videoUrl
+
+                // set new video source
                 videoView.setVideoURI(uri)
+
+                // same setup as before for looping and auto-play
                 videoView.setOnPreparedListener { mediaPlayer ->
                     mediaPlayer.isLooping = true
                     if (!isPaused) {
@@ -918,11 +938,14 @@ private fun VideoBackground(videoUrl: Int) {
                 }
             }
 
+            // handle pause/play based on current state
             if (isPaused) {
+                // pause only if it's currently playing
                 if (videoView.isPlaying) {
                     videoView.pause()
                 }
             } else {
+                // start only if it's not already playing
                 if (!videoView.isPlaying) {
                     videoView.start()
                 }

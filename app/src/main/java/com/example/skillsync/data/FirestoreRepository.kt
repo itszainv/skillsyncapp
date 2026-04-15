@@ -223,11 +223,11 @@ class FirestoreRepository {
         db.document("subjects/$subjectId/courses/$courseId/lessons/$lessonId").delete().await()
     }
 
+    /*
+    Fetches the complete student feed structure, including subjects, courses, and lessons.
+    Video playback logic now uses direct network URLs from the [Lesson.videoUrl] field.
+    */
     suspend fun getStudentFeedSubjects(): List<StudentFeedSubject> {
-        val videoIds = listOf(
-            com.example.skillsync.R.raw.video1,
-            com.example.skillsync.R.raw.video2
-        )
         val thumbnailIds = listOf(
             com.example.skillsync.R.drawable.example_cover,
             com.example.skillsync.R.drawable.ic_launcher_foreground
@@ -243,16 +243,13 @@ class FirestoreRepository {
                     val rawLessons = getLessons(subject.id, course.id).sortedBy { it.order }
 
                     val lessons = rawLessons.mapIndexed { lessonIndex, lesson ->
-                        val mediaIndex = if (videoIds.isEmpty()) 0
-                        else (subjectIndex + courseIndex + lessonIndex) % videoIds.size
-
                         StudentFeedLesson(
                             lessonId = lesson.id,
                             lessonTitle = lesson.title.ifBlank { "Lesson ${lessonIndex + 1}" },
                             lessonOrder = lesson.order,
                             quiz = buildStudentQuiz(lesson),
-                            videoResId = videoIds[mediaIndex],
-                            thumbnailResId = thumbnailIds[mediaIndex % thumbnailIds.size],
+                            videoUrl = lesson.videoUrl,
+                            thumbnailResId = thumbnailIds[(subjectIndex + courseIndex + lessonIndex) % thumbnailIds.size],
                             isSaved = lesson.id in savedLessonIds,
                             isCompleted = lesson.id in completedLessonIds
                         )
@@ -298,6 +295,11 @@ class FirestoreRepository {
         }
     }
 
+    /**
+     * Toggles a lesson's presence in the user's "Watch Later" list.
+     * Stores a flat record of the lesson's metadata and video URL in a subcollection
+     * for easy offline-ready retrieval and persistent saving.
+     */
     suspend fun toggleWatchLater(lesson: StudentFeedLesson, course: StudentFeedCourse): Boolean {
         val userId = currentUserId() ?: return false
         ensureUserProfileDocument()
@@ -332,7 +334,7 @@ class FirestoreRepository {
                     correctAnswerIndex = lesson.quiz.correctAnswerIndex,
                     explanation = lesson.quiz.explanation,
                     quizType = lesson.quiz.type.name,
-                    videoUrl = lesson.videoResId.toString(),
+                    videoUrl = lesson.videoUrl,
                     thumbnailResId = lesson.thumbnailResId,
                     savedAt = System.currentTimeMillis()
                 )
@@ -350,6 +352,10 @@ class FirestoreRepository {
         }
     }
 
+    /**
+     * Fetches all lessons saved by the current user for later viewing.
+     * Returns mapped [WatchLaterLesson] objects containing necessary video URLs and quiz data.
+     */
     suspend fun getWatchLaterLessons(): List<WatchLaterLesson> {
         val userId = currentUserId() ?: return emptyList()
         return try {
@@ -376,8 +382,7 @@ class FirestoreRepository {
                     correctAnswerIndex = (doc.getLong("correctAnswerIndex") ?: 0L).toInt(),
                     explanation = doc.getString("explanation").orEmpty(),
                     quizType = doc.getString("quizType").orEmpty(),
-                    videoUrl = doc.getString("videoUrl")
-                        ?: (doc.getLong("videoResId")?.toString().orEmpty()),
+                    videoUrl = doc.getString("videoUrl").orEmpty(),
                     thumbnailResId = (doc.getLong("thumbnailResId") ?: 0L).toInt(),
                     savedAt = doc.getLong("savedAt") ?: 0L
                 )
@@ -414,7 +419,7 @@ class FirestoreRepository {
                                     else -> StudentQuizType.MULTIPLE_CHOICE
                                 }
                             ),
-                            videoResId = saved.videoUrl.toIntOrNull() ?: com.example.skillsync.R.raw.video1,
+                            videoUrl = saved.videoUrl,
                             thumbnailResId = saved.thumbnailResId,
                             isSaved = true,
                             isCompleted = false

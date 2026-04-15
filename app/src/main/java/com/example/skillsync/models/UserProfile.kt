@@ -52,7 +52,7 @@ data class WatchLaterLesson(
     val correctAnswerIndex: Int? = null,
     val explanation: String = "",
     val quizType: String = StudentQuizType.INFO.name,
-    val videoUrl: String = "",
+    val videoUrl: String = "", // Caches the remote URL for network streaming
     val thumbnailResId: Int = 0,
     val savedAt: Long = 0L
 ) {
@@ -61,9 +61,12 @@ data class WatchLaterLesson(
             .getOrDefault(StudentQuizType.INFO)
 
         return StudentFeedLesson(
+            // basic lesson info
             lessonId = lessonId,
             lessonTitle = lessonTitle,
             lessonOrder = lessonOrder,
+
+            // creates the quiz object for this lesson
             quiz = StudentQuiz(
                 question = question,
                 options = options,
@@ -71,8 +74,14 @@ data class WatchLaterLesson(
                 explanation = explanation,
                 type = parsedQuizType
             ),
-            videoResId = videoUrl.toIntOrNull() ?: com.example.skillsync.R.raw.video1,
+
+            // video link pulled from Firebase
+            videoUrl = videoUrl,
+
+            // thumbnail for UI (still using local resource for now)
             thumbnailResId = thumbnailResId,
+
+            // defaulting to saved since this is coming from saved lessons
             isSaved = true
         )
     }
