@@ -1,6 +1,5 @@
 package com.example.skillsync.data
 
-import android.net.Uri
 import com.example.skillsync.models.Course
 import com.example.skillsync.models.Lesson
 import com.example.skillsync.models.StudentFeedCourse
@@ -17,8 +16,105 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.firestore
 import kotlinx.coroutines.tasks.await
+import com.example.skillsync.models.LeaderboardData
+import com.example.skillsync.models.LeaderboardEntry
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class FirestoreRepository {
+
+    private data class LevelProgress(
+        val level: Int,
+        val xpIntoCurrentLevel: Int,
+        val xpRequiredForNextLevel: Int
+    )
+
+    private fun todayKey(): String {
+        return SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+    }
+
+    private fun getLevelProgress(totalXp: Int): LevelProgress {
+        var level = 1
+        var xpRequired = 10
+        var remainingXp = totalXp.coerceAtLeast(0)
+
+        while (level < 20 && remainingXp >= xpRequired) {
+            remainingXp -= xpRequired
+            level++
+            xpRequired += 10
+        }
+
+        return if (level >= 20) {
+            LevelProgress(
+                level = 20,
+                xpIntoCurrentLevel = 0,
+                xpRequiredForNextLevel = 0
+            )
+        } else {
+            LevelProgress(
+                level = level,
+                xpIntoCurrentLevel = remainingXp,
+                xpRequiredForNextLevel = xpRequired
+            )
+        }
+    }
+
+    private fun calculateLevelFromXp(totalXp: Int): Int {
+        return getLevelProgress(totalXp).level
+    }
+
+    private suspend fun getCompletedLessonIds(): Set<String> {
+        val userId = currentUserId() ?: return emptySet()
+        return try {
+            db.collection("users")
+                .document(userId)
+                .collection("completedLessons")
+                .get()
+                .await()
+                .documents
+                .map { it.id }
+                .toSet()
+        } catch (e: Exception) {
+            emptySet()
+        }
+    }
+
+    private suspend fun claimProgressMilestoneIfNeeded(
+        userId: String,
+        type: String,
+        entityId: String,
+        completionPercent: Int
+    ): Int {
+        val milestones = listOf(25, 50, 75, 100)
+        var bonusXp = 0
+
+        for (milestone in milestones) {
+            if (completionPercent >= milestone) {
+                val claimId = "${type}_${entityId}_$milestone"
+                val claimRef = db.collection("users")
+                    .document(userId)
+                    .collection("claimedMilestones")
+                    .document(claimId)
+
+                val existing = claimRef.get().await()
+                if (!existing.exists()) {
+                    claimRef.set(
+                        mapOf(
+                            "type" to type,
+                            "entityId" to entityId,
+                            "milestone" to milestone,
+                            "claimedAt" to FieldValue.serverTimestamp()
+                        )
+                    ).await()
+                    bonusXp += 15
+                }
+            }
+        }
+
+        return bonusXp
+    }
+
     private val db: FirebaseFirestore = Firebase.firestore
 
     companion object {
@@ -32,18 +128,24 @@ class FirestoreRepository {
         val user = Firebase.auth.currentUser ?: return
         val ref = db.collection("users").document(user.uid)
         val snapshot = ref.get().await()
-        if (!snapshot.exists()) {
-            ref.set(
-                mapOf(
-                    "email" to user.email.orEmpty(),
-                    "xp" to 0,
-                    "currentStreak" to 0,
-                    "highestStreak" to 0,
-                    "watchLaterCount" to 0,
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-            ).await()
-        }
+
+        val defaultFields = mapOf(
+            "email" to user.email.orEmpty(),
+            "xp" to (snapshot.getLong("xp") ?: 0L),
+            "level" to (snapshot.getLong("level") ?: 1L),
+            "currentStreak" to (snapshot.getLong("currentStreak") ?: 0L),
+            "highestStreak" to (snapshot.getLong("highestStreak") ?: 0L),
+            "watchLaterCount" to (snapshot.getLong("watchLaterCount") ?: 0L),
+            "dailyXp" to (snapshot.getLong("dailyXp") ?: 0L),
+            "dailyXpDate" to (snapshot.getString("dailyXpDate") ?: todayKey()),
+            "skillBux" to (snapshot.getLong("skillBux") ?: 0L),
+            "theme" to (snapshot.getString("theme") ?: "red_black"),
+            "avatar" to (snapshot.getString("avatar") ?: "🙂"),
+            "nameIcon" to (snapshot.getString("nameIcon") ?: ""),
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+
+        ref.set(defaultFields, com.google.firebase.firestore.SetOptions.merge()).await()
     }
 
     suspend fun getSubjects(): List<Subject> {
@@ -121,12 +223,11 @@ class FirestoreRepository {
         db.document("subjects/$subjectId/courses/$courseId/lessons/$lessonId").delete().await()
     }
 
+    /*
+    Fetches the complete student feed structure, including subjects, courses, and lessons.
+    Video playback logic now uses direct network URLs from the [Lesson.videoUrl] field.
+    */
     suspend fun getStudentFeedSubjects(): List<StudentFeedSubject> {
-        // Fallback hardcoded videos (now as resource strings)
-        val fallbackVideoUrls = listOf(
-            "res://raw/video1",
-            "res://raw/video2"
-        )
         val thumbnailIds = listOf(
             com.example.skillsync.R.drawable.example_cover,
             com.example.skillsync.R.drawable.ic_launcher_foreground
@@ -135,29 +236,29 @@ class FirestoreRepository {
         return try {
             val savedLessons = getWatchLaterLessons()
             val savedLessonIds = savedLessons.map { it.lessonId }.toSet()
+            val completedLessonIds = getCompletedLessonIds()
 
             val regularSubjects = getSubjects().mapIndexed { subjectIndex, subject ->
                 val courses = getCourses(subject.id).mapIndexed { courseIndex, course ->
-                    val lessons = getLessons(subject.id, course.id)
-                        .sortedBy { it.order }
-                        .mapIndexed { lessonIndex, lesson ->
-                            // Check if the lesson has a videoUrl stored in Firestore (future-proofing)
-                            // Note: We might need to update the Lesson model to include videoUrl
-                            val videoUrlFromDb = lesson.components.firstOrNull()?.get("videoUrl")?.toString()
-                            
-                            val mediaIndex = if (fallbackVideoUrls.isEmpty()) 0
-                            else (subjectIndex + courseIndex + lessonIndex) % fallbackVideoUrls.size
+                    val rawLessons = getLessons(subject.id, course.id).sortedBy { it.order }
 
-                            StudentFeedLesson(
-                                lessonId = lesson.id,
-                                lessonTitle = lesson.title.ifBlank { "Lesson ${lessonIndex + 1}" },
-                                lessonOrder = lesson.order,
-                                quiz = buildStudentQuiz(lesson),
-                                videoUrl = videoUrlFromDb ?: fallbackVideoUrls[mediaIndex],
-                                thumbnailResId = thumbnailIds[mediaIndex % thumbnailIds.size],
-                                isSaved = lesson.id in savedLessonIds
-                            )
-                        }
+                    val lessons = rawLessons.mapIndexed { lessonIndex, lesson ->
+                        StudentFeedLesson(
+                            lessonId = lesson.id,
+                            lessonTitle = lesson.title.ifBlank { "Lesson ${lessonIndex + 1}" },
+                            lessonOrder = lesson.order,
+                            quiz = buildStudentQuiz(lesson),
+                            videoUrl = lesson.videoUrl,
+                            thumbnailResId = thumbnailIds[(subjectIndex + courseIndex + lessonIndex) % thumbnailIds.size],
+                            isSaved = lesson.id in savedLessonIds,
+                            isCompleted = lesson.id in completedLessonIds
+                        )
+                    }
+
+                    val totalLessons = lessons.size
+                    val completedLessons = lessons.count { it.isCompleted }
+                    val courseCompletionPercent =
+                        if (totalLessons == 0) 0 else (completedLessons * 100) / totalLessons
 
                     StudentFeedCourse(
                         subjectId = subject.id,
@@ -165,14 +266,26 @@ class FirestoreRepository {
                         courseId = course.id,
                         courseTitle = course.title,
                         courseDescription = course.description,
-                        lessons = lessons
+                        lessons = lessons,
+                        completionPercent = courseCompletionPercent,
+                        completedLessons = completedLessons,
+                        totalLessons = totalLessons
                     )
                 }
+
+                val totalCourses = courses.size
+                val completedCourses =
+                    courses.count { it.totalLessons > 0 && it.completedLessons == it.totalLessons }
+                val subjectCompletionPercent =
+                    if (totalCourses == 0) 0 else (completedCourses * 100) / totalCourses
 
                 StudentFeedSubject(
                     subjectId = subject.id,
                     subjectName = subject.name,
-                    courses = courses
+                    courses = courses,
+                    completionPercent = subjectCompletionPercent,
+                    completedCourses = completedCourses,
+                    totalCourses = totalCourses
                 )
             }
 
@@ -182,6 +295,11 @@ class FirestoreRepository {
         }
     }
 
+    /**
+     * Toggles a lesson's presence in the user's "Watch Later" list.
+     * Stores a flat record of the lesson's metadata and video URL in a subcollection
+     * for easy offline-ready retrieval and persistent saving.
+     */
     suspend fun toggleWatchLater(lesson: StudentFeedLesson, course: StudentFeedCourse): Boolean {
         val userId = currentUserId() ?: return false
         ensureUserProfileDocument()
@@ -234,6 +352,10 @@ class FirestoreRepository {
         }
     }
 
+    /**
+     * Fetches all lessons saved by the current user for later viewing.
+     * Returns mapped [WatchLaterLesson] objects containing necessary video URLs and quiz data.
+     */
     suspend fun getWatchLaterLessons(): List<WatchLaterLesson> {
         val userId = currentUserId() ?: return emptyList()
         return try {
@@ -243,9 +365,26 @@ class FirestoreRepository {
                 .get()
                 .await()
 
-            snapshot.documents.mapNotNull { doc ->
-                doc.toObject(WatchLaterLesson::class.java)?.copy(
-                    lessonId = doc.getString("lessonId").orEmpty()
+            snapshot.documents.map { doc ->
+                WatchLaterLesson(
+                    lessonId = doc.getString("lessonId").orEmpty(),
+                    subjectId = doc.getString("subjectId").orEmpty(),
+                    subjectName = doc.getString("subjectName").orEmpty(),
+                    courseId = doc.getString("courseId").orEmpty(),
+                    courseTitle = doc.getString("courseTitle").orEmpty(),
+                    courseDescription = doc.getString("courseDescription").orEmpty(),
+                    lessonTitle = doc.getString("lessonTitle").orEmpty(),
+                    lessonOrder = (doc.getLong("lessonOrder") ?: 0L).toInt(),
+                    question = doc.getString("question").orEmpty(),
+                    options = (doc.get("options") as? List<*>)
+                        ?.mapNotNull { it?.toString() }
+                        .orEmpty(),
+                    correctAnswerIndex = (doc.getLong("correctAnswerIndex") ?: 0L).toInt(),
+                    explanation = doc.getString("explanation").orEmpty(),
+                    quizType = doc.getString("quizType").orEmpty(),
+                    videoUrl = doc.getString("videoUrl").orEmpty(),
+                    thumbnailResId = (doc.getLong("thumbnailResId") ?: 0L).toInt(),
+                    savedAt = doc.getLong("savedAt") ?: 0L
                 )
             }.sortedByDescending { it.savedAt }
         } catch (e: Exception) {
@@ -264,9 +403,36 @@ class FirestoreRepository {
                     courseId = WATCH_LATER_COURSE_ID,
                     courseTitle = "Saved Lessons",
                     courseDescription = "Lessons you saved to watch later.",
-                    lessons = savedLessons.map { it.toStudentFeedLesson() }
+                    lessons = savedLessons.map { saved ->
+                        StudentFeedLesson(
+                            lessonId = saved.lessonId,
+                            lessonTitle = saved.lessonTitle,
+                            lessonOrder = saved.lessonOrder,
+                            quiz = StudentQuiz(
+                                question = saved.question,
+                                options = saved.options,
+                                correctAnswerIndex = saved.correctAnswerIndex,
+                                explanation = saved.explanation,
+                                type = when (saved.quizType) {
+                                    StudentQuizType.TRUE_FALSE.name -> StudentQuizType.TRUE_FALSE
+                                    StudentQuizType.INFO.name -> StudentQuizType.INFO
+                                    else -> StudentQuizType.MULTIPLE_CHOICE
+                                }
+                            ),
+                            videoUrl = saved.videoUrl,
+                            thumbnailResId = saved.thumbnailResId,
+                            isSaved = true,
+                            isCompleted = false
+                        )
+                    },
+                    completionPercent = 0,
+                    completedLessons = 0,
+                    totalLessons = savedLessons.size
                 )
-            )
+            ),
+            completionPercent = 0,
+            completedCourses = 0,
+            totalCourses = 1
         )
     }
 
@@ -295,12 +461,33 @@ class FirestoreRepository {
                     ?.mapNotNull { it?.toString() }
                     ?.filter { it.isNotBlank() }
                     .orEmpty()
-                val correct = (component["correct"] as? Number)?.toInt()
+                
+                var correct = (component["correct"] as? Number)?.toInt()
+                
+                // Fallback: If 'correct' index is missing, try to find the 'answer' string in options
+                if (correct == null) {
+                    val answerStr = component["answer"]?.toString()
+                    if (answerStr != null) {
+                        val foundIndex = options.indexOf(answerStr)
+                        if (foundIndex != -1) {
+                            correct = foundIndex
+                        }
+                    }
+                }
+
                 if (options.isNotEmpty() && correct != null) {
                     StudentQuiz(
                         question = question,
                         options = options,
                         correctAnswerIndex = correct.coerceIn(0, options.lastIndex),
+                        explanation = explanation,
+                        type = StudentQuizType.MULTIPLE_CHOICE
+                    )
+                } else if (options.isNotEmpty()) {
+                    // Even if we don't know the correct one, show the options as a multiple choice
+                    StudentQuiz(
+                        question = question,
+                        options = options,
                         explanation = explanation,
                         type = StudentQuizType.MULTIPLE_CHOICE
                     )
@@ -328,9 +515,6 @@ class FirestoreRepository {
         }
     }
 
-    private fun calculateLevelFromXp(xp: Int): Int {
-        return (xp / 100).coerceAtLeast(0) + 1
-    }
 
     suspend fun getUserProfileModel(): UserProfile {
         val user = Firebase.auth.currentUser ?: return UserProfile()
@@ -343,6 +527,14 @@ class FirestoreRepository {
             val highestStreak = (doc.getLong("highestStreak") ?: 0L).toInt()
             val watchLaterCount = (doc.getLong("watchLaterCount") ?: 0L).toInt()
             val level = calculateLevelFromXp(xp)
+            val dailyXp = (doc.getLong("dailyXp") ?: 0L).toInt()
+            val skillBux = (doc.getLong("skillBux") ?: 0L).toInt()
+            val selectedTheme = doc.getString("theme").orEmpty().ifBlank { "dark_red" }
+            val purchasedThemes = (doc.get("purchasedThemes") as? List<*>)?.mapNotNull { it?.toString() }?.ifEmpty { listOf("dark_red") } ?: listOf("dark_red")
+            val selectedAvatar = doc.getString("avatar").orEmpty().ifBlank { "🙂" }
+            val purchasedAvatars = (doc.get("purchasedAvatars") as? List<*>)?.mapNotNull { it?.toString() }?.ifEmpty { listOf("🙂") } ?: listOf("🙂")
+            val selectedNameIcon = doc.getString("nameIcon").orEmpty()
+            val purchasedNameIcons = (doc.get("purchasedNameIcons") as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
 
             UserProfile(
                 uid = user.uid,
@@ -351,12 +543,28 @@ class FirestoreRepository {
                 level = level,
                 currentStreak = currentStreak,
                 highestStreak = highestStreak,
-                watchLaterCount = watchLaterCount
+                watchLaterCount = watchLaterCount,
+                dailyXp = dailyXp,
+                skillBux = skillBux,
+                selectedTheme = selectedTheme,
+                purchasedThemes = purchasedThemes,
+                selectedAvatar = selectedAvatar,
+                purchasedAvatars = purchasedAvatars,
+                selectedNameIcon = selectedNameIcon,
+                purchasedNameIcons = purchasedNameIcons
             )
         } catch (e: Exception) {
             UserProfile(
                 uid = user.uid,
-                email = user.email.orEmpty()
+                email = user.email.orEmpty(),
+                dailyXp = 0,
+                skillBux = 0,
+                selectedTheme = "dark_red",
+                purchasedThemes = listOf("dark_red"),
+                selectedAvatar = "🙂",
+                purchasedAvatars = listOf("🙂"),
+                selectedNameIcon = "",
+                purchasedNameIcons = emptyList()
             )
         }
     }
@@ -412,77 +620,265 @@ class FirestoreRepository {
         }
     }
 
-    suspend fun recordQuizAnswer(isCorrect: Boolean, baseXp: Int = 10): UserProfile {
+    suspend fun recordQuizAnswer(
+        lessonId: String,
+        isCorrect: Boolean
+    ): UserProfile {
         val userId = currentUserId() ?: return UserProfile()
         ensureUserProfileDocument()
+
         val userRef = db.collection("users").document(userId)
+        val completedRef = userRef.collection("completedLessons").document(lessonId)
 
         return try {
             val doc = userRef.get().await()
+
             val currentXp = (doc.getLong("xp") ?: 0L).toInt()
             val currentStreak = (doc.getLong("currentStreak") ?: 0L).toInt()
             val highestStreak = (doc.getLong("highestStreak") ?: 0L).toInt()
             val watchLaterCount = (doc.getLong("watchLaterCount") ?: 0L).toInt()
-            val email = doc.getString("email").orEmpty().ifBlank { Firebase.auth.currentUser?.email.orEmpty() }
+            val storedDailyXp = (doc.getLong("dailyXp") ?: 0L).toInt()
+            val storedDailyXpDate = doc.getString("dailyXpDate").orEmpty()
+            val currentSkillBux = (doc.getLong("skillBux") ?: 0L).toInt()
+            val email = doc.getString("email").orEmpty()
+            val today = todayKey()
 
-            val newStreak = if (isCorrect) currentStreak + 1 else 0
+            val alreadyCompleted = completedRef.get().await().exists()
+            if (alreadyCompleted) {
+                return getUserProfileModel()
+            }
+
+            val currentDailyXp = if (storedDailyXpDate == today) storedDailyXp else 0
+
+            if (!isCorrect) {
+                userRef.update(
+                    mapOf(
+                        "currentStreak" to 0,
+                        "dailyXp" to currentDailyXp,
+                        "dailyXpDate" to today,
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    )
+                ).await()
+
+                return getUserProfileModel().copy(
+                    uid = userId,
+                    email = email,
+                    xp = currentXp,
+                    level = calculateLevelFromXp(currentXp),
+                    currentStreak = 0,
+                    highestStreak = highestStreak,
+                    watchLaterCount = watchLaterCount,
+                    dailyXp = currentDailyXp,
+                    skillBux = currentSkillBux
+                )
+            }
+
+            val newCurrentStreak = currentStreak + 1
             val multiplier = when {
-                newStreak >= 5 -> 2.0
-                newStreak >= 3 -> 1.5
-                newStreak >= 2 -> 1.2
+                newCurrentStreak >= 5 -> 2.0
+                newCurrentStreak >= 3 -> 1.5
+                newCurrentStreak >= 2 -> 1.2
                 else -> 1.0
             }
-            val xpEarned = if (isCorrect) (baseXp * multiplier).toInt() else 0
-            val newXp = currentXp + xpEarned
-            val newHighestStreak = maxOf(highestStreak, newStreak)
-            val newLevel = calculateLevelFromXp(newXp)
+
+            val baseXp = 5
+            val quizXp = (baseXp * multiplier).toInt()
+
+            completedRef.set(
+                mapOf(
+                    "completedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+
+            val refreshedSubjects = getStudentFeedSubjects()
+            val subject = refreshedSubjects.firstOrNull { s ->
+                s.courses.any { c -> c.lessons.any { it.lessonId == lessonId } }
+            }
+            val course = subject?.courses?.firstOrNull { c ->
+                c.lessons.any { it.lessonId == lessonId }
+            }
+
+            val courseBonus = if (course != null) {
+                claimProgressMilestoneIfNeeded(userId, "course", course.courseId, course.completionPercent)
+            } else 0
+
+            val subjectBonus = if (subject != null) {
+                claimProgressMilestoneIfNeeded(userId, "subject", subject.subjectId, subject.completionPercent)
+            } else 0
+
+            val totalXpToAdd = quizXp + courseBonus + subjectBonus
+            val newXp = currentXp + totalXpToAdd
+            val newDailyXp = currentDailyXp + totalXpToAdd
+            val newHighestStreak = maxOf(highestStreak, newCurrentStreak)
+            val oldLevel = calculateLevelFromXp(currentXp)
+            val levelProgress = getLevelProgress(newXp)
+            val levelsGained = (levelProgress.level - oldLevel).coerceAtLeast(0)
+            val skillBuxEarned = levelsGained * 25
+            val newSkillBux = currentSkillBux + skillBuxEarned
 
             userRef.update(
                 mapOf(
                     "xp" to newXp,
-                    "level" to newLevel,
-                    "currentStreak" to newStreak,
+                    "level" to levelProgress.level,
+                    "currentStreak" to newCurrentStreak,
                     "highestStreak" to newHighestStreak,
+                    "dailyXp" to newDailyXp,
+                    "dailyXpDate" to today,
+                    "skillBux" to newSkillBux,
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
             ).await()
 
-            UserProfile(
+            getUserProfileModel().copy(
                 uid = userId,
                 email = email,
                 xp = newXp,
-                level = newLevel,
-                currentStreak = newStreak,
+                level = levelProgress.level,
+                currentStreak = newCurrentStreak,
                 highestStreak = newHighestStreak,
-                watchLaterCount = watchLaterCount
+                watchLaterCount = watchLaterCount,
+                dailyXp = newDailyXp,
+                skillBux = newSkillBux
             )
         } catch (e: Exception) {
             getUserProfileModel()
         }
     }
 
-    suspend fun markLessonComplete(lessonId: String, score: Int, total: Int) {
+    suspend fun applyTheme(themeId: String) {
         val userId = currentUserId() ?: return
-        try {
-            db.collection("users/$userId/progress").document(lessonId).set(
+        ensureUserProfileDocument()
+        db.collection("users").document(userId)
+            .update(
                 mapOf(
-                    "completed" to true,
-                    "score" to score,
-                    "total" to total,
-                    "completedAt" to FieldValue.serverTimestamp()
+                    "theme" to themeId,
+                    "updatedAt" to FieldValue.serverTimestamp()
                 )
             ).await()
-        } catch (_: Exception) {
-        }
     }
 
-    suspend fun getLessonProgress(lessonId: String): Map<String, Any>? {
-        val userId = currentUserId() ?: return null
+    suspend fun applyAvatar(avatar: String) {
+        val userId = currentUserId() ?: return
+        ensureUserProfileDocument()
+        db.collection("users").document(userId)
+            .update(
+                mapOf(
+                    "avatar" to avatar,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+    }
+
+    suspend fun applyNameIcon(icon: String) {
+        val userId = currentUserId() ?: return
+        ensureUserProfileDocument()
+        db.collection("users").document(userId)
+            .update(
+                mapOf(
+                    "nameIcon" to icon,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+    }
+
+    suspend fun purchaseTheme(themeId: String, cost: Int): Boolean {
+        val userId = currentUserId() ?: return false
+        ensureUserProfileDocument()
+        val userRef = db.collection("users").document(userId)
+        val doc = userRef.get().await()
+        val skillBux = (doc.getLong("skillBux") ?: 0L).toInt()
+        val purchased = (doc.get("purchasedThemes") as? List<*>)?.mapNotNull { it?.toString() } ?: listOf("dark_red")
+        if (themeId in purchased) return true
+        if (skillBux < cost) return false
+        userRef.update(
+            mapOf(
+                "skillBux" to skillBux - cost,
+                "purchasedThemes" to purchased + themeId,
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+        ).await()
+        return true
+    }
+
+    suspend fun purchaseAvatar(avatar: String, cost: Int): Boolean {
+        val userId = currentUserId() ?: return false
+        ensureUserProfileDocument()
+        val userRef = db.collection("users").document(userId)
+        val doc = userRef.get().await()
+        val skillBux = (doc.getLong("skillBux") ?: 0L).toInt()
+        val purchased = (doc.get("purchasedAvatars") as? List<*>)?.mapNotNull { it?.toString() } ?: listOf("🙂")
+        if (avatar in purchased) return true
+        if (skillBux < cost) return false
+        userRef.update(
+            mapOf(
+                "skillBux" to skillBux - cost,
+                "purchasedAvatars" to purchased + avatar,
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+        ).await()
+        return true
+    }
+
+    suspend fun purchaseNameIcon(icon: String, cost: Int): Boolean {
+        val userId = currentUserId() ?: return false
+        ensureUserProfileDocument()
+        val userRef = db.collection("users").document(userId)
+        val doc = userRef.get().await()
+        val skillBux = (doc.getLong("skillBux") ?: 0L).toInt()
+        val purchased = (doc.get("purchasedNameIcons") as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
+        if (icon in purchased) return true
+        if (skillBux < cost) return false
+        userRef.update(
+            mapOf(
+                "skillBux" to skillBux - cost,
+                "purchasedNameIcons" to purchased + icon,
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+        ).await()
+        return true
+    }
+
+    suspend fun getLeaderboardData(): LeaderboardData {
         return try {
-            val doc = db.collection("users/$userId/progress").document(lessonId).get().await()
-            if (doc.exists()) doc.data else null
+            val usersSnapshot = db.collection("users").get().await()
+            val today = todayKey()
+
+            val entries = usersSnapshot.documents.map { doc ->
+                val email = doc.getString("email").orEmpty()
+                val displayName = doc.getString("displayName").orEmpty()
+                val name = displayName.ifBlank {
+                    if (email.isNotBlank()) email.substringBefore("@") else "User"
+                }
+
+                val highestStreak = (doc.getLong("highestStreak") ?: 0L).toInt()
+                val level = (doc.getLong("level") ?: 1L).toInt()
+                val dailyXpDate = doc.getString("dailyXpDate").orEmpty()
+                val dailyXp = if (dailyXpDate == today) {
+                    (doc.getLong("dailyXp") ?: 0L).toInt()
+                } else {
+                    0
+                }
+
+                Triple(
+                    LeaderboardEntry(name = name, value = highestStreak),
+                    LeaderboardEntry(name = name, value = level),
+                    LeaderboardEntry(name = name, value = dailyXp)
+                )
+            }
+
+            LeaderboardData(
+                topStreakUsers = entries.map { it.first }
+                    .sortedByDescending { it.value }
+                    .take(10),
+                topLevelUsers = entries.map { it.second }
+                    .sortedByDescending { it.value }
+                    .take(10),
+                topDailyXpUsers = entries.map { it.third }
+                    .sortedByDescending { it.value }
+                    .take(10)
+            )
         } catch (e: Exception) {
-            null
+            LeaderboardData()
         }
     }
 }

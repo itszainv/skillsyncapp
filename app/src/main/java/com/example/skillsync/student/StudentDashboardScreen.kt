@@ -43,10 +43,12 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
@@ -57,6 +59,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -84,19 +87,28 @@ import com.example.skillsync.models.StudentFeedLesson
 import com.example.skillsync.models.StudentFeedSubject
 import com.example.skillsync.models.StudentQuiz
 import com.example.skillsync.models.StudentQuizType
+import com.example.skillsync.models.UserProfile
+import com.example.skillsync.models.ShopItem
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.filled.EmojiEvents
+import com.example.skillsync.models.LeaderboardData
+import androidx.compose.foundation.layout.width
 
 private sealed interface StudentDestination {
     data object Feed : StudentDestination
     data class Courses(val subjectIndex: Int, val courseIndex: Int) : StudentDestination
+    data object Shop : StudentDestination
     data object Profile : StudentDestination
+    data object Leaderboards : StudentDestination
 }
 
 @Composable
-fun StudentDashboardScreen(onLogout: () -> Unit) {
+fun StudentDashboardScreen(onLogout: () -> Unit, onThemeChanged: (String) -> Unit) {
     val repo = remember { FirestoreRepository() }
     val userEmail = FirebaseAuth.getInstance().currentUser?.email.orEmpty()
     val currentUser = FirebaseAuth.getInstance().currentUser
@@ -109,6 +121,8 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
     var destination by remember { mutableStateOf<StudentDestination>(StudentDestination.Feed) }
     var feedStartPage by remember { mutableIntStateOf(0) }
     var selectedCourseIndex by remember { mutableIntStateOf(0) }
+    var userProfile by remember { mutableStateOf(UserProfile()) }
+    var leaderboardData by remember { mutableStateOf(LeaderboardData()) }
     val savedLessonsCount = remember(subjects) {
         subjects
             .flatMap { it.courses }
@@ -123,6 +137,9 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
     suspend fun refreshSubjects(showLoading: Boolean = false) {
         if (showLoading) loading = true
         subjects = withContext(Dispatchers.IO) { repo.getStudentFeedSubjects() }
+        userProfile = withContext(Dispatchers.IO) { repo.getUserProfileModel() }
+        leaderboardData = withContext(Dispatchers.IO) { repo.getLeaderboardData() }
+
         if (subjects.isNotEmpty()) {
             selectedSubjectIndex = selectedSubjectIndex.coerceIn(0, subjects.lastIndex)
             val activeSubject = subjects[selectedSubjectIndex]
@@ -132,6 +149,7 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
             selectedSubjectIndex = 0
             selectedCourseIndex = 0
         }
+
         if (showLoading) loading = false
     }
 
@@ -156,26 +174,77 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
                 Scaffold(
                     snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
                     bottomBar = {
-                        NavigationBar {
+                        NavigationBar(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                            tonalElevation = 0.dp
+                        ) {
                             NavigationBarItem(
                                 selected = destination is StudentDestination.Feed,
                                 onClick = { destination = StudentDestination.Feed },
-                                icon = { Icon(Icons.Default.Home, contentDescription = "Feed") },
-                                label = { Text("Feed") }
+                                icon = { Icon(Icons.Default.Home, contentDescription = "Feed", modifier = Modifier.size(20.dp)) },
+                                label = { Text("Feed", style = MaterialTheme.typography.labelSmall) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                                    selectedTextColor = MaterialTheme.colorScheme.onPrimary,
+                                    unselectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                                    unselectedTextColor = MaterialTheme.colorScheme.onPrimary,
+                                    indicatorColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.24f)
+                                )
                             )
                             NavigationBarItem(
                                 selected = destination is StudentDestination.Courses,
                                 onClick = {
                                     destination = StudentDestination.Courses(safeSubjectIndex, safeCourseIndex)
                                 },
-                                icon = { Icon(Icons.Default.Person, contentDescription = "Courses") },
-                                label = { Text("Courses") }
+                                icon = { Icon(Icons.Default.Person, contentDescription = "Courses", modifier = Modifier.size(20.dp)) },
+                                label = { Text("Courses", style = MaterialTheme.typography.labelSmall) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                                    selectedTextColor = MaterialTheme.colorScheme.onPrimary,
+                                    unselectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                                    unselectedTextColor = MaterialTheme.colorScheme.onPrimary,
+                                    indicatorColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.24f)
+                                )
+                            )
+                            NavigationBarItem(
+                                selected = destination is StudentDestination.Shop,
+                                onClick = { destination = StudentDestination.Shop },
+                                icon = { Icon(Icons.Default.BookmarkBorder, contentDescription = "Shop", modifier = Modifier.size(20.dp)) },
+                                label = { Text("Shop", style = MaterialTheme.typography.labelSmall) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                                    selectedTextColor = MaterialTheme.colorScheme.onPrimary,
+                                    unselectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                                    unselectedTextColor = MaterialTheme.colorScheme.onPrimary,
+                                    indicatorColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.24f)
+                                )
+                            )
+                            NavigationBarItem(
+                                selected = destination is StudentDestination.Leaderboards,
+                                onClick = { destination = StudentDestination.Leaderboards },
+                                icon = { Icon(Icons.Default.EmojiEvents, contentDescription = "Leaderboards", modifier = Modifier.size(20.dp)) },
+                                label = { Text("Leaders", style = MaterialTheme.typography.labelSmall, maxLines = 1) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                                    selectedTextColor = MaterialTheme.colorScheme.onPrimary,
+                                    unselectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                                    unselectedTextColor = MaterialTheme.colorScheme.onPrimary,
+                                    indicatorColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.24f)
+                                )
                             )
                             NavigationBarItem(
                                 selected = destination is StudentDestination.Profile,
                                 onClick = { destination = StudentDestination.Profile },
-                                icon = { Icon(Icons.Default.Bookmark, contentDescription = "Profile") },
-                                label = { Text("Profile") }
+                                icon = { Icon(Icons.Default.Bookmark, contentDescription = "Profile", modifier = Modifier.size(20.dp)) },
+                                label = { Text("Profile", style = MaterialTheme.typography.labelSmall) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                                    selectedTextColor = MaterialTheme.colorScheme.onPrimary,
+                                    unselectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                                    unselectedTextColor = MaterialTheme.colorScheme.onPrimary,
+                                    indicatorColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.24f)
+                                )
                             )
                         }
                     }
@@ -218,6 +287,9 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
                             },
                             onRefreshAfterWatchLater = {
                                 refreshSubjects()
+                            },
+                            onQuizAnswered = {
+                                refreshSubjects()
                             }
                         )
 
@@ -245,17 +317,73 @@ fun StudentDashboardScreen(onLogout: () -> Unit) {
                             onLogout = onLogout
                         )
 
+                        StudentDestination.Shop -> ShopScreen(
+                            modifier = Modifier.padding(innerPadding),
+                            profile = userProfile,
+                            onPurchaseTheme = { themeId, cost ->
+                                val purchased = withContext(Dispatchers.IO) { repo.purchaseTheme(themeId, cost) }
+                                if (purchased) {
+                                    refreshSubjects()
+                                    snackbarHostState.showSnackbar("Theme unlocked")
+                                } else {
+                                    snackbarHostState.showSnackbar("Not enough SkillBux")
+                                }
+                            },
+                            onApplyTheme = { themeId ->
+                                withContext(Dispatchers.IO) { repo.applyTheme(themeId) }
+                                onThemeChanged(themeId)
+                                refreshSubjects()
+                                snackbarHostState.showSnackbar("Theme applied")
+                            },
+                            onPurchaseAvatar = { avatar, cost ->
+                                val purchased = withContext(Dispatchers.IO) { repo.purchaseAvatar(avatar, cost) }
+                                if (purchased) {
+                                    refreshSubjects()
+                                    snackbarHostState.showSnackbar("Avatar unlocked")
+                                } else {
+                                    snackbarHostState.showSnackbar("Not enough SkillBux")
+                                }
+                            },
+                            onApplyAvatar = { avatar ->
+                                withContext(Dispatchers.IO) { repo.applyAvatar(avatar) }
+                                refreshSubjects()
+                                snackbarHostState.showSnackbar("Avatar applied")
+                            },
+                            onPurchaseNameIcon = { icon, cost ->
+                                val purchased = withContext(Dispatchers.IO) { repo.purchaseNameIcon(icon, cost) }
+                                if (purchased) {
+                                    refreshSubjects()
+                                    snackbarHostState.showSnackbar("Name icon unlocked")
+                                } else {
+                                    snackbarHostState.showSnackbar("Not enough SkillBux")
+                                }
+                            },
+                            onApplyNameIcon = { icon ->
+                                withContext(Dispatchers.IO) { repo.applyNameIcon(icon) }
+                                refreshSubjects()
+                                snackbarHostState.showSnackbar("Name icon applied")
+                            }
+                        )
+
                         StudentDestination.Profile -> StudentAccountProfileScreen(
                             modifier = Modifier.padding(innerPadding),
                             userEmail = userEmail,
                             displayName = currentUser?.displayName.orEmpty(),
-                            savedLessonsCount = savedLessonsCount,
+                            savedLessonsCount = userProfile.watchLaterCount,
                             totalCoursesCount = totalCoursesCount,
                             totalLessonsCount = totalLessonsCount,
-                            level = 1,
-                            xp = 0,
-                            streak = 0,
+                            level = userProfile.level,
+                            xp = userProfile.xp,
+                            streak = userProfile.currentStreak,
+                            skillBux = userProfile.skillBux,
+                            avatar = userProfile.selectedAvatar,
+                            nameIcon = userProfile.selectedNameIcon,
                             onLogout = onLogout
+                        )
+
+                        StudentDestination.Leaderboards -> LeaderboardsScreen(
+                            modifier = Modifier.padding(innerPadding),
+                            leaderboardData = leaderboardData
                         )
                     }
                 }
@@ -299,7 +427,8 @@ private fun StudentFeedScreen(
     onOpenProfile: (Int, Int) -> Unit,
     onToggleWatchLater: suspend (StudentFeedLesson, StudentFeedCourse) -> Boolean,
     onWatchLaterMessage: suspend (Boolean) -> Unit,
-    onRefreshAfterWatchLater: suspend () -> Unit
+    onRefreshAfterWatchLater: suspend () -> Unit,
+    onQuizAnswered: suspend () -> Unit
 ) {
     val subject = subjects[selectedSubjectIndex.coerceIn(0, subjects.lastIndex)]
     val safeCourseIndex = if (subject.courses.isEmpty()) 0 else selectedCourseIndex.coerceIn(0, subject.courses.lastIndex)
@@ -323,25 +452,8 @@ private fun StudentFeedScreen(
 
     if (lessonPages.isEmpty()) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("No lessons found in this course")
+            Text("No lessons found")
         }
-
-        SubjectTabs(
-            subjects = subjects,
-            selectedSubjectIndex = selectedSubjectIndex,
-            onSelectSubject = onSelectSubject,
-            modifier = Modifier
-                .statusBarsPadding()
-                .padding(top = 8.dp, start = 12.dp, end = 12.dp)
-        )
-        CourseTabs(
-            courses = subject.courses,
-            selectedCourseIndex = safeCourseIndex,
-            onSelectCourse = onSelectCourse,
-            modifier = Modifier
-                .statusBarsPadding()
-                .padding(top = 62.dp, start = 12.dp, end = 12.dp)
-        )
         return
     }
 
@@ -387,6 +499,11 @@ private fun StudentFeedScreen(
                             onRefreshAfterWatchLater()
                             onWatchLaterMessage(isSavedNow)
                         }
+                    },
+                    onQuizAnswered = {
+                        scope.launch {
+                            onQuizAnswered()
+                        }
                     }
                 )
             }
@@ -406,7 +523,7 @@ private fun CourseTabs(
     Column(modifier = modifier.fillMaxWidth()) {
         Text(
             text = "Courses",
-            color = Color.White,
+            color = MaterialTheme.colorScheme.onPrimary,
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(bottom = 8.dp)
@@ -443,7 +560,7 @@ private fun SubjectTabs(
     Column(modifier = modifier.fillMaxWidth()) {
         Text(
             text = "Subjects",
-            color = Color.White,
+            color = MaterialTheme.colorScheme.onPrimary,
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(bottom = 8.dp)
@@ -469,7 +586,8 @@ private fun LessonFeedPage(
     subjectName: String,
     quizState: QuizUiState,
     onOpenProfile: () -> Unit,
-    onToggleWatchLater: (StudentFeedLesson, StudentFeedCourse) -> Unit
+    onToggleWatchLater: (StudentFeedLesson, StudentFeedCourse) -> Unit,
+    onQuizAnswered: suspend () -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         VideoBackground(videoUrl = item.lesson.videoUrl)
@@ -503,7 +621,7 @@ private fun LessonFeedPage(
                 TextButton(onClick = onOpenProfile) {
                     Text(
                         text = item.course.courseTitle,
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onPrimary,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -512,7 +630,7 @@ private fun LessonFeedPage(
 
             Text(
                 text = item.lesson.lessonTitle,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onPrimary,
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(top = 8.dp)
@@ -520,7 +638,7 @@ private fun LessonFeedPage(
 
             Text(
                 text = subjectName,
-                color = Color.White.copy(alpha = 0.85f),
+                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f),
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = 4.dp)
             )
@@ -528,7 +646,7 @@ private fun LessonFeedPage(
             if (item.course.courseDescription.isNotBlank()) {
                 Text(
                     text = item.course.courseDescription,
-                    color = Color.White.copy(alpha = 0.9f),
+                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f),
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -591,9 +709,11 @@ private fun LessonFeedPage(
 
         if (quizState.isVisible) {
             QuizOverlay(
+                lessonId = item.lesson.lessonId,
                 quiz = item.lesson.quiz,
                 state = quizState,
-                modifier = Modifier.align(Alignment.Center)
+                modifier = Modifier.align(Alignment.Center),
+                onQuizAnswered = onQuizAnswered
             )
         }
     }
@@ -601,10 +721,14 @@ private fun LessonFeedPage(
 
 @Composable
 private fun QuizOverlay(
+    lessonId: String,
     quiz: StudentQuiz,
     state: QuizUiState,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onQuizAnswered: suspend () -> Unit
 ) {
+    val scope = rememberCoroutineScope()
+    val repo = remember { FirestoreRepository() }
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -729,11 +853,29 @@ private fun QuizOverlay(
                     Text(if (state.submitted) "Done" else "Close")
                 }
                 Button(
-                    onClick = { state.submitted = true },
-                    enabled = quiz.correctAnswerIndex == null || state.selectedAnswerIndex != null,
+                    onClick = {
+                        if (state.submitted) {
+                            state.isVisible = false
+                            state.submitted = false
+                            state.selectedAnswerIndex = null
+                            return@Button
+                        }
+
+                        state.submitted = true
+                        val isCorrect = state.selectedAnswerIndex == quiz.correctAnswerIndex
+
+                        scope.launch {
+                            repo.recordQuizAnswer(
+                                lessonId = lessonId,
+                                isCorrect = isCorrect
+                            )
+                            onQuizAnswered()
+                        }
+                    },
+                    enabled = state.submitted || quiz.correctAnswerIndex == null || state.selectedAnswerIndex != null,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text(if (state.submitted) "Results" else "Submit")
+                    Text(if (state.submitted) "Done" else "Submit")
                 }
             }
         }
@@ -742,28 +884,34 @@ private fun QuizOverlay(
 
 @Composable
 private fun VideoBackground(videoUrl: String) {
+    // keeps track of whether the video is paused or playing
+    // resets if the video URL changes
     var isPaused by remember(videoUrl) { mutableStateOf(false) }
 
     AndroidView(
         modifier = Modifier
             .fillMaxSize()
+            // tap anywhere on the screen to pause/play the video
             .clickable {
                 isPaused = !isPaused
             },
         factory = { context ->
             VideoView(context).apply {
-                val uri = if (videoUrl.startsWith("res://raw/")) {
-                    val resName = videoUrl.removePrefix("res://raw/")
-                    val resId = context.resources.getIdentifier(resName, "raw", context.packageName)
-                    Uri.parse("android.resource://${context.packageName}/$resId")
-                } else {
-                    Uri.parse(videoUrl)
-                }
-                
+                // convert the string URL into a URI so VideoView can use it
+                val uri = Uri.parse(videoUrl)
+
+                // store the current video URL so we can compare later
                 tag = videoUrl
+
+                // set the video source
                 setVideoURI(uri)
+
+                // runs when the video is ready to play
                 setOnPreparedListener { mediaPlayer ->
+                    // loop the video so it keeps playing in the background
                     mediaPlayer.isLooping = true
+
+                    // only start if it's not paused
                     if (!isPaused) {
                         start()
                     }
@@ -771,17 +919,17 @@ private fun VideoBackground(videoUrl: String) {
             }
         },
         update = { videoView ->
+            // if the video URL changed, reload the video
             if (videoView.tag != videoUrl) {
-                val uri = if (videoUrl.startsWith("res://raw/")) {
-                    val resName = videoUrl.removePrefix("res://raw/")
-                    val resId = videoView.context.resources.getIdentifier(resName, "raw", videoView.context.packageName)
-                    Uri.parse("android.resource://${videoView.context.packageName}/$resId")
-                } else {
-                    Uri.parse(videoUrl)
-                }
-                
+                val uri = Uri.parse(videoUrl)
+
+                // update tag to new URL
                 videoView.tag = videoUrl
+
+                // set new video source
                 videoView.setVideoURI(uri)
+
+                // same setup as before for looping and auto-play
                 videoView.setOnPreparedListener { mediaPlayer ->
                     mediaPlayer.isLooping = true
                     if (!isPaused) {
@@ -790,11 +938,14 @@ private fun VideoBackground(videoUrl: String) {
                 }
             }
 
+            // handle pause/play based on current state
             if (isPaused) {
+                // pause only if it's currently playing
                 if (videoView.isPlaying) {
                     videoView.pause()
                 }
             } else {
+                // start only if it's not already playing
                 if (!videoView.isPlaying) {
                     videoView.start()
                 }
@@ -858,7 +1009,7 @@ private fun StudentProfileScreen(
             ) {
                 Text(
                     text = course?.courseTitle?.take(1)?.uppercase().orEmpty(),
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onPrimary,
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold
                 )
@@ -875,9 +1026,19 @@ private fun StudentProfileScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp)
             )
+            Text(
+                text = "Subject progress: ${subject.completedCourses}/${subject.totalCourses} courses completed (${subject.completionPercent}%)",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp)
+            )
             if (!course?.courseDescription.isNullOrBlank()) {
                 Text(text = course?.courseDescription.orEmpty(), modifier = Modifier.padding(top = 8.dp))
             }
+            Text(
+                text = "Course progress: ${course?.completedLessons ?: 0}/${course?.totalLessons ?: 0} lessons completed (${course?.completionPercent ?: 0}%)",
+                modifier = Modifier.padding(top = 8.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
 
         SubjectSection(
@@ -910,7 +1071,21 @@ private fun StudentProfileScreen(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                    }
+                    },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primary,
+                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                        containerColor = Color.Transparent,
+                        labelColor = MaterialTheme.colorScheme.onBackground
+                    ),
+                    border = FilterChipDefaults.filterChipBorder(
+                        enabled = true,
+                        selected = index == safeCourseIndex,
+                        borderColor = MaterialTheme.colorScheme.secondary,
+                        selectedBorderColor = MaterialTheme.colorScheme.secondary,
+                        borderWidth = 1.dp,
+                        selectedBorderWidth = 1.dp
+                    )
                 )
             }
         }
@@ -964,7 +1139,7 @@ private fun StudentProfileScreen(
 
                         Text(
                             text = lesson.lessonTitle,
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onPrimary,
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 2,
@@ -1002,7 +1177,21 @@ private fun SubjectSection(
                 FilterChip(
                     selected = index == selectedSubjectIndex,
                     onClick = { onSwitchSubject(index) },
-                    label = { Text(subject.subjectName) }
+                    label = { Text(subject.subjectName) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primary,
+                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                        containerColor = Color.Transparent,
+                        labelColor = MaterialTheme.colorScheme.onBackground
+                    ),
+                    border = FilterChipDefaults.filterChipBorder(
+                        enabled = true,
+                        selected = index == selectedSubjectIndex,
+                        borderColor = MaterialTheme.colorScheme.secondary,
+                        selectedBorderColor = MaterialTheme.colorScheme.secondary,
+                        borderWidth = 1.dp,
+                        selectedBorderWidth = 1.dp
+                    )
                 )
             }
         }
@@ -1040,6 +1229,9 @@ private fun StudentAccountProfileScreen(
     level: Int,
     xp: Int,
     streak: Int,
+    skillBux: Int,
+    avatar: String,
+    nameIcon: String,
     onLogout: () -> Unit
 ) {
     Column(
@@ -1058,6 +1250,8 @@ private fun StudentAccountProfileScreen(
                 .fillMaxWidth()
                 .padding(top = 16.dp),
             shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondary),
+            border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary),
             elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
@@ -1069,24 +1263,27 @@ private fun StudentAccountProfileScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = (displayName.ifBlank { userEmail }.take(1).uppercase()),
-                        color = Color.White,
+                        text = avatar,
+                        color = Color.Black,
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold
                     )
                 }
 
                 Text(
-                    text = if (displayName.isBlank()) "Student" else displayName,
+                    text = listOf(nameIcon, if (displayName.isBlank()) "Student" else displayName)
+                        .filter { it.isNotBlank() }
+                        .joinToString(" "),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
+                    color = Color.Black,
                     modifier = Modifier.padding(top = 12.dp)
                 )
 
                 Text(
                     text = userEmail,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = Color.Black,
                     modifier = Modifier.padding(top = 4.dp)
                 )
             }
@@ -1102,10 +1299,27 @@ private fun StudentAccountProfileScreen(
             userScrollEnabled = false
         ) {
             item {
-                ProfileStatCard(title = "Level", value = level.toString())
+                val xpProgress = remember(xp) {
+                    var currentLevel = 1
+                    var xpNeededForThisLevel = 10
+                    var remainingXp = xp
+
+                    while (currentLevel < 20 && remainingXp >= xpNeededForThisLevel) {
+                        remainingXp -= xpNeededForThisLevel
+                        currentLevel++
+                        xpNeededForThisLevel += 10
+                    }
+
+                    remainingXp to xpNeededForThisLevel
+                }
+
+                ProfileStatCard(
+                    title = "XP",
+                    value = "${xpProgress.first}/${xpProgress.second}"
+                )
             }
             item {
-                ProfileStatCard(title = "XP", value = xp.toString())
+                ProfileStatCard(title = "Level", value = level.toString())
             }
             item {
                 ProfileStatCard(title = "Streak", value = streak.toString())
@@ -1114,11 +1328,9 @@ private fun StudentAccountProfileScreen(
                 ProfileStatCard(title = "Saved", value = savedLessonsCount.toString())
             }
             item {
-                ProfileStatCard(title = "Courses", value = totalCoursesCount.toString())
+                ProfileStatCard(title = "SkillBux", value = skillBux.toString())
             }
-            item {
-                ProfileStatCard(title = "Lessons", value = totalLessonsCount.toString())
-            }
+
         }
 
         Spacer(modifier = Modifier.height(20.dp))
@@ -1136,12 +1348,250 @@ private fun StudentAccountProfileScreen(
 }
 
 @Composable
+private fun ShopScreen(
+    modifier: Modifier = Modifier,
+    profile: UserProfile,
+    onPurchaseTheme: suspend (String, Int) -> Unit,
+    onApplyTheme: suspend (String) -> Unit,
+    onPurchaseAvatar: suspend (String, Int) -> Unit,
+    onApplyAvatar: suspend (String) -> Unit,
+    onPurchaseNameIcon: suspend (String, Int) -> Unit,
+    onApplyNameIcon: suspend (String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    val themes = listOf(
+        ShopItem("dark_red", "Midnight Red", "Dark black + red", 0, "dark_red" in profile.purchasedThemes, profile.selectedTheme == "dark_red"),
+        ShopItem("dark_blue", "Midnight Blue", "Dark black + blue", 40, "dark_blue" in profile.purchasedThemes, profile.selectedTheme == "dark_blue"),
+        ShopItem("dark_green", "Midnight Green", "Dark black + green", 40, "dark_green" in profile.purchasedThemes, profile.selectedTheme == "dark_green"),
+        ShopItem("light_red", "Ivory Red", "Light white + red", 60, "light_red" in profile.purchasedThemes, profile.selectedTheme == "light_red"),
+        ShopItem("light_blue", "Ivory Blue", "Light white + blue", 60, "light_blue" in profile.purchasedThemes, profile.selectedTheme == "light_blue"),
+        ShopItem("light_green", "Ivory Green", "Light white + green", 60, "light_green" in profile.purchasedThemes, profile.selectedTheme == "light_green")
+    )
+    val avatars = listOf("🙂" to 0, "😎" to 20, "🧠" to 25, "👑" to 35, "🚀" to 35, "🐯" to 45)
+    val nameIcons = listOf("🔥" to 20, "⚡" to 20, "👑" to 30, "🎯" to 25, "🏆" to 35)
+
+    LazyColumn(
+        modifier = modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondary),
+                border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Shop", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = Color.Black)
+                    Text("SkillBux balance", color = Color.Black.copy(alpha = 0.8f), modifier = Modifier.padding(top = 4.dp))
+                    Text(profile.skillBux.toString(), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, color = Color.Black, modifier = Modifier.padding(top = 8.dp))
+                }
+            }
+        }
+        item { ShopSectionTitle("Themes") }
+        items(themes) { item ->
+            ShopActionCard(
+                title = item.title,
+                subtitle = item.subtitle,
+                trailing = if (item.owned) if (item.applied) "Applied" else "Apply" else "${item.cost} SkillBux",
+                onClick = {
+                    scope.launch {
+                        if (item.owned) onApplyTheme(item.id) else onPurchaseTheme(item.id, item.cost)
+                    }
+                }
+            )
+        }
+        item { ShopSectionTitle("Profile Pictures") }
+        items(avatars) { (avatar, cost) ->
+            val owned = avatar in profile.purchasedAvatars
+            val applied = profile.selectedAvatar == avatar
+            ShopActionCard(
+                title = "$avatar Avatar",
+                subtitle = if (owned) "Unlocked" else "Unlock for $cost SkillBux",
+                trailing = if (owned) if (applied) "Applied" else "Apply" else "Buy",
+                onClick = {
+                    scope.launch {
+                        if (owned) onApplyAvatar(avatar) else onPurchaseAvatar(avatar, cost)
+                    }
+                }
+            )
+        }
+        item { ShopSectionTitle("Name Icons") }
+        items(nameIcons) { (icon, cost) ->
+            val owned = icon in profile.purchasedNameIcons
+            val applied = profile.selectedNameIcon == icon
+            ShopActionCard(
+                title = "$icon Name Icon",
+                subtitle = if (owned) "Unlocked" else "Unlock for $cost SkillBux",
+                trailing = if (owned) if (applied) "Applied" else "Apply" else "Buy",
+                onClick = {
+                    scope.launch {
+                        if (owned) onApplyNameIcon(icon) else onPurchaseNameIcon(icon, cost)
+                    }
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun ShopSectionTitle(title: String) {
+    Text(
+        text = title,
+        style = MaterialTheme.typography.titleLarge,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.padding(top = 4.dp)
+    )
+}
+
+@Composable
+private fun ShopActionCard(
+    title: String,
+    subtitle: String,
+    trailing: String,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary),
+        border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.secondary)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
+                Text(subtitle, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f), modifier = Modifier.padding(top = 4.dp))
+            }
+            Button(onClick = onClick) {
+                Text(trailing)
+            }
+        }
+    }
+}
+
+@Composable
+private fun LeaderboardsScreen(
+    modifier: Modifier = Modifier,
+    leaderboardData: LeaderboardData
+) {
+    LazyColumn(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            Text(
+                text = "Leaderboards",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onPrimary
+            )
+        }
+
+        item {
+            LeaderboardCard(
+                title = "Highest Streak",
+                subtitle = "Top right-answer streaks",
+                entries = leaderboardData.topStreakUsers,
+                valueLabel = "streak"
+            )
+        }
+
+        item {
+            LeaderboardCard(
+                title = "Highest Level",
+                subtitle = "Top current levels",
+                entries = leaderboardData.topLevelUsers,
+                valueLabel = "level"
+            )
+        }
+
+        item {
+            LeaderboardCard(
+                title = "Most XP Today",
+                subtitle = "Top XP earned in a single day",
+                entries = leaderboardData.topDailyXpUsers,
+                valueLabel = "XP"
+            )
+        }
+    }
+}
+
+@Composable
+private fun LeaderboardCard(
+    title: String,
+    subtitle: String,
+    entries: List<com.example.skillsync.models.LeaderboardEntry>,
+    valueLabel: String
+) {
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary),
+        border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.secondary)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onPrimary
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f),
+                modifier = Modifier.padding(top = 4.dp, bottom = 10.dp)
+            )
+
+            if (entries.isEmpty()) {
+                Text(
+                    text = "No data yet",
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+            } else {
+                entries.forEachIndexed { index, entry ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "${index + 1}.",
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.width(28.dp)
+                        )
+                        Text(
+                            text = entry.name,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = "${entry.value} $valueLabel",
+                            color = Color(0xFFFFD54F),
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun ProfileStatCard(
     title: String,
     value: String
 ) {
     Card(
         shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary),
+        border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.secondary),
         elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
     ) {
         Column(
@@ -1152,12 +1602,13 @@ private fun ProfileStatCard(
             Text(
                 text = title,
                 style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f)
             )
             Text(
                 text = value,
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onPrimary,
                 modifier = Modifier.padding(top = 6.dp)
             )
         }

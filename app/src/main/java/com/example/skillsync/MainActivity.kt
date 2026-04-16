@@ -8,12 +8,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
 import com.example.skillsync.admin.AdminDashboard
 import com.example.skillsync.auth.AuthViewModel
 import com.example.skillsync.screens.LoginScreen
 import com.example.skillsync.screens.RegisterScreen
 import com.example.skillsync.student.StudentDashboardScreen
 import com.example.skillsync.ui.theme.SkillSyncTheme
+import com.example.skillsync.data.FirestoreRepository
 import com.google.firebase.auth.FirebaseAuth
 
 class MainActivity : ComponentActivity() {
@@ -23,18 +25,28 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         setContent {
-            SkillSyncTheme {
-                val user = FirebaseAuth.getInstance().currentUser
-                var screen by remember {
-                    mutableStateOf(
-                        when {
-                            user == null -> "login"
-                            authViewModel.isAdmin() -> "admin"
-                            else -> "student"
-                        }
-                    )
-                }
+            val repo = remember { FirestoreRepository() }
+            val user = FirebaseAuth.getInstance().currentUser
+            var themeKey by remember { mutableStateOf("dark_red") }
+            var screen by remember {
+                mutableStateOf(
+                    when {
+                        user == null -> "login"
+                        authViewModel.isAdmin() -> "admin"
+                        else -> "student"
+                    }
+                )
+            }
 
+            LaunchedEffect(screen, user?.uid) {
+                if (screen == "student" && FirebaseAuth.getInstance().currentUser != null) {
+                    themeKey = repo.getUserProfileModel().selectedTheme
+                } else {
+                    themeKey = "dark_red"
+                }
+            }
+
+            SkillSyncTheme(themeKey = themeKey) {
                 when (screen) {
                     "login" -> LoginScreen(
                         onLoginSuccess = {
@@ -52,6 +64,10 @@ class MainActivity : ComponentActivity() {
                         onLogout = {
                             authViewModel.logout()
                             screen = "login"
+                            themeKey = "dark_red"
+                        },
+                        onThemeChanged = { newTheme ->
+                            themeKey = newTheme
                         }
                     )
 
