@@ -54,7 +54,8 @@ data class WatchLaterLesson(
     val explanation: String = "",
     val quizType: String = StudentQuizType.INFO.name,
     val videoUrl: String = "", // Caches the remote URL for network streaming
-    val thumbnailResId: Int = 0,
+    // URL for the lesson's preview thumbnail image, stored in the user's watch later collection
+    val thumbnailUrl: String = "",
     val savedAt: Long = 0L
 ) {
     fun toStudentFeedLesson(): StudentFeedLesson {
@@ -80,8 +81,8 @@ data class WatchLaterLesson(
             // video link pulled from Firebase
             videoUrl = videoUrl,
 
-            // thumbnail for UI (still using local resource for now)
-            thumbnailResId = thumbnailResId,
+            // thumbnail for UI
+            thumbnailUrl = thumbnailUrl,
 
             // defaulting to saved since this is coming from saved lessons
             isSaved = true

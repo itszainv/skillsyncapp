@@ -20,7 +20,9 @@ data class Lesson(
     val id: String = "",
     val title: String = "",
     val order: Int = 0,
-    val videoUrl: String = "", // Added directly here
+    val videoUrl: String = "",
+    // URL for the lesson's preview thumbnail image, can be a web link or Firebase Storage URL
+    val thumbnailUrl: String = "",
     val components: List<Map<String, Any>> = emptyList()
 )
 

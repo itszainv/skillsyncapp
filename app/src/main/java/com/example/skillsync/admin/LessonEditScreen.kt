@@ -60,6 +60,8 @@ fun LessonEditScreen(
     var title by remember { mutableStateOf(lesson?.title ?: "") }
     var order by remember { mutableStateOf(lesson?.order?.toString() ?: "1") }
     var videoUrl by remember { mutableStateOf(lesson?.videoUrl ?: "") }
+    // State for the thumbnail URL, either uploaded to Firebase or manually entered
+    var thumbnailUrl by remember { mutableStateOf(lesson?.thumbnailUrl ?: "") }
     var saving by remember { mutableStateOf(false) }
     var uploading by remember { mutableStateOf(false) }
     var uploadStatus by remember { mutableStateOf("") }
@@ -92,6 +94,32 @@ fun LessonEditScreen(
                     val downloadUrl = storageRef.downloadUrl.await()
                     videoUrl = downloadUrl.toString()
                     uploadStatus = "Video uploaded successfully!"
+                } catch (e: Exception) {
+                    uploadStatus = "Upload failed: ${e.localizedMessage}"
+                } finally {
+                    uploading = false
+                }
+            }
+        }
+    }
+
+    val thumbnailPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            uploading = true
+            uploadStatus = "Uploading thumbnail..."
+            scope.launch {
+                try {
+                    // Upload the thumbnail image
+                    val storageRef = FirebaseStorage.getInstance().reference
+                        .child("lessons/thumbnails/${UUID.randomUUID()}.png")
+
+                    storageRef.putFile(it).await()
+                    val downloadUrl = storageRef.downloadUrl.await()
+                    // Set the URL as the thumbnail
+                    thumbnailUrl = downloadUrl.toString()
+                    uploadStatus = "Thumbnail uploaded successfully!"
                 } catch (e: Exception) {
                     uploadStatus = "Upload failed: ${e.localizedMessage}"
                 } finally {
@@ -193,6 +221,38 @@ fun LessonEditScreen(
             singleLine = true
         )
 
+        Spacer(Modifier.height(24.dp))
+        HorizontalDivider(color = Color.White.copy(alpha = 0.2f))
+        Spacer(Modifier.height(20.dp))
+
+        // Thumbnail Section
+        Text("Lesson Thumbnail", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium, color = Color.White)
+        Spacer(Modifier.height(16.dp))
+
+        Button(
+            onClick = { thumbnailPickerLauncher.launch("image/*") },
+            enabled = !uploading,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Default.VideoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.padding(horizontal = 4.dp))
+            Text(if (thumbnailUrl.isEmpty()) "Upload Thumbnail Image" else "Replace Thumbnail Image")
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        OutlinedTextField(
+            value = thumbnailUrl,
+            onValueChange = { thumbnailUrl = it },
+            label = { Text("Thumbnail URL") },
+            placeholder = { Text("https://example.com/image.png") },
+            leadingIcon = { Icon(Icons.Default.Link, contentDescription = null, tint = Color.White.copy(alpha = 0.7f)) },
+            colors = textFieldColors,
+            textStyle = TextStyle(color = Color.White),
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+
         Spacer(Modifier.height(32.dp))
 
         Button(
@@ -206,6 +266,7 @@ fun LessonEditScreen(
                             title = title,
                             order = order.toIntOrNull() ?: 1,
                             videoUrl = videoUrl,
+                            thumbnailUrl = thumbnailUrl,
                             components = lesson?.components ?: emptyList()
                         )
                     )

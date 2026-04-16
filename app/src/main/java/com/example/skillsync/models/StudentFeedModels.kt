@@ -30,8 +30,10 @@ data class StudentFeedLesson( //Represents a lesson in the student feed.
     val lessonTitle: String,
     val lessonOrder: Int,
     val quiz: StudentQuiz,
-    val videoUrl: String, // Changed from Int to String for URL-based playback
-    @DrawableRes val thumbnailResId: Int,
+    // The video stream URL for the lesson
+    val videoUrl: String,
+    // The image URL for the lesson's card thumbnail
+    val thumbnailUrl: String,
     val isSaved: Boolean = false,
     val isCompleted: Boolean = false
 )

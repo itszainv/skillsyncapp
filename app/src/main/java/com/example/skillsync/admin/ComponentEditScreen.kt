@@ -231,13 +231,18 @@ fun ComponentEditScreen(
                 saving = true
                 scope.launch {
                     val component: Map<String, Any> = when (selectedType) {
-                        ComponentType.MULTIPLE_CHOICE -> mapOf(
-                            "type" to "multiple_choice",
-                            "question" to question,
-                            "options" to listOf(optionA, optionB, optionC, optionD),
-                            "correct" to correctIndex,
-                            "explanation" to explanation
-                        )
+                        ComponentType.MULTIPLE_CHOICE -> {
+                            val options = listOf(optionA, optionB, optionC, optionD)
+                            mapOf(
+                                "type" to "multiple_choice",
+                                "question" to question,
+                                "options" to options,
+                                "correct" to correctIndex,
+                                // Save the actual answer text as well for the student-side fallback logic
+                                "answer" to (options.getOrNull(correctIndex) ?: ""),
+                                "explanation" to explanation
+                            )
+                        }
                         ComponentType.TRUE_FALSE -> mapOf(
                             "type" to "true_false",
                             "question" to question,

@@ -98,6 +98,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.filled.EmojiEvents
 import com.example.skillsync.models.LeaderboardData
 import androidx.compose.foundation.layout.width
+import coil.compose.AsyncImage
+import coil.compose.rememberAsyncImagePainter
 
 private sealed interface StudentDestination {
     data object Feed : StudentDestination
@@ -1120,11 +1122,15 @@ private fun StudentProfileScreen(
                             .clip(RoundedCornerShape(12.dp))
                             .clickable { onOpenLesson(safeSubjectIndex, lessonIndex) }
                     ) {
-                        Image(
-                            painter = painterResource(id = lesson.thumbnailResId),
+                        AsyncImage(
+                            // Load the lesson thumbnail from the URL stored in Firestore
+                            model = lesson.thumbnailUrl,
                             contentDescription = lesson.lessonTitle,
                             contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier.fillMaxSize(),
+                            // Show a default cover image while loading or if the URL is invalid
+                            placeholder = painterResource(id = com.example.skillsync.R.drawable.example_cover),
+                            error = painterResource(id = com.example.skillsync.R.drawable.example_cover)
                         )
 
                         Box(

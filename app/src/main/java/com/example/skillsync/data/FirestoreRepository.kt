@@ -228,18 +228,13 @@ class FirestoreRepository {
     Video playback logic now uses direct network URLs from the [Lesson.videoUrl] field.
     */
     suspend fun getStudentFeedSubjects(): List<StudentFeedSubject> {
-        val thumbnailIds = listOf(
-            com.example.skillsync.R.drawable.example_cover,
-            com.example.skillsync.R.drawable.ic_launcher_foreground
-        )
-
         return try {
             val savedLessons = getWatchLaterLessons()
             val savedLessonIds = savedLessons.map { it.lessonId }.toSet()
             val completedLessonIds = getCompletedLessonIds()
 
-            val regularSubjects = getSubjects().mapIndexed { subjectIndex, subject ->
-                val courses = getCourses(subject.id).mapIndexed { courseIndex, course ->
+            val regularSubjects = getSubjects().mapIndexed { _, subject ->
+                val courses = getCourses(subject.id).mapIndexed { _, course ->
                     val rawLessons = getLessons(subject.id, course.id).sortedBy { it.order }
 
                     val lessons = rawLessons.mapIndexed { lessonIndex, lesson ->
@@ -249,7 +244,7 @@ class FirestoreRepository {
                             lessonOrder = lesson.order,
                             quiz = buildStudentQuiz(lesson),
                             videoUrl = lesson.videoUrl,
-                            thumbnailResId = thumbnailIds[(subjectIndex + courseIndex + lessonIndex) % thumbnailIds.size],
+                            thumbnailUrl = lesson.thumbnailUrl,
                             isSaved = lesson.id in savedLessonIds,
                             isCompleted = lesson.id in completedLessonIds
                         )
@@ -335,7 +330,8 @@ class FirestoreRepository {
                     explanation = lesson.quiz.explanation,
                     quizType = lesson.quiz.type.name,
                     videoUrl = lesson.videoUrl,
-                    thumbnailResId = lesson.thumbnailResId,
+                    // Persist the thumbnail URL to the user's watch later collection
+                    thumbnailUrl = lesson.thumbnailUrl,
                     savedAt = System.currentTimeMillis()
                 )
                 ref.set(record).await()
@@ -383,7 +379,8 @@ class FirestoreRepository {
                     explanation = doc.getString("explanation").orEmpty(),
                     quizType = doc.getString("quizType").orEmpty(),
                     videoUrl = doc.getString("videoUrl").orEmpty(),
-                    thumbnailResId = (doc.getLong("thumbnailResId") ?: 0L).toInt(),
+                    // Retrieve the thumbnail URL for display
+                    thumbnailUrl = doc.getString("thumbnailUrl").orEmpty(),
                     savedAt = doc.getLong("savedAt") ?: 0L
                 )
             }.sortedByDescending { it.savedAt }
@@ -420,7 +417,7 @@ class FirestoreRepository {
                                 }
                             ),
                             videoUrl = saved.videoUrl,
-                            thumbnailResId = saved.thumbnailResId,
+                            thumbnailUrl = saved.thumbnailUrl,
                             isSaved = true,
                             isCompleted = false
                         )
@@ -462,9 +459,11 @@ class FirestoreRepository {
                     ?.filter { it.isNotBlank() }
                     .orEmpty()
                 
+                // Primary way to get the correct answer: numeric index from 'correct' field
                 var correct = (component["correct"] as? Number)?.toInt()
                 
-                // Fallback: If 'correct' index is missing, try to find the 'answer' string in options
+                // Fallback: If 'correct' index is missing (e.g., legacy data or manual entry), 
+                // try to find the 'answer' string within the options list.
                 if (correct == null) {
                     val answerStr = component["answer"]?.toString()
                     if (answerStr != null) {
@@ -484,7 +483,8 @@ class FirestoreRepository {
                         type = StudentQuizType.MULTIPLE_CHOICE
                     )
                 } else if (options.isNotEmpty()) {
-                    // Even if we don't know the correct one, show the options as a multiple choice
+                    // Even if the correct index cannot be determined, we still show the options
+                    // so the student can interact with the quiz (multiple choice type).
                     StudentQuiz(
                         question = question,
                         options = options,
@@ -492,6 +492,7 @@ class FirestoreRepository {
                         type = StudentQuizType.MULTIPLE_CHOICE
                     )
                 } else {
+                    // Fallback to INFO type if no options are available.
                     StudentQuiz(question = question, explanation = explanation)
                 }
             }
