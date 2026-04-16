@@ -1,4 +1,4 @@
-Created by: Asiyah Shoeb, Zain Virk, Kage Little, and James Harding 
+Created by: Asiyah Shoeb, Zain Virk, Kage Little, and Jim Harding 
 
 Date: 4/16/26
 
