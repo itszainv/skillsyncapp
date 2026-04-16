@@ -1,3 +1,10 @@
+/**********************************************************
+ * Created by: Asiyah Shoeb
+ * Date: 4/16/26
+ * Description: Screen for creating or editing lesson details including title, order, and video content.
+ * Last Modified by: Asiyah Shoeb
+ **********************************************************/
+
 package com.example.skillsync.admin
 
 import android.net.Uri
@@ -14,7 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.Button
@@ -137,7 +144,11 @@ fun LessonEditScreen(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack, 
+                    contentDescription = "Back", 
+                    tint = Color.White
+                )
             }
             Text(
                 if (lesson == null) "New lesson" else "Edit lesson",

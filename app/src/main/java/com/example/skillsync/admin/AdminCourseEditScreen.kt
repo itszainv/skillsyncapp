@@ -1,3 +1,10 @@
+/**********************************************************
+ * Created by: Asiyah Shoeb
+ * Date: 4/16/26
+ * Description: Screen for creating or editing course details including title and description.
+ * Last Modified by: Asiyah Shoeb
+ **********************************************************/
+
 package com.example.skillsync.admin
 
 import androidx.compose.foundation.background

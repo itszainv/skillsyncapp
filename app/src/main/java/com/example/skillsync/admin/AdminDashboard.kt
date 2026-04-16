@@ -1,3 +1,10 @@
+/**********************************************************
+ * Created by: Asiyah Shoeb
+ * Date: 4/16/26
+ * Description: Main container and navigation controller for the admin section of the app.
+ * Last Modified by: Asiyah Shoeb
+ **********************************************************/
+
 package com.example.skillsync.admin
 
 import androidx.compose.foundation.background
