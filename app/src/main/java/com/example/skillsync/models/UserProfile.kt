@@ -1,4 +1,5 @@
 package com.example.skillsync.models
+import android.util.Log // Needed to see why multiple_choice questions were being read as NULL
 
 data class UserProfile(
     val uid: String = "",
@@ -57,6 +58,7 @@ data class WatchLaterLesson(
     val savedAt: Long = 0L
 ) {
     fun toStudentFeedLesson(): StudentFeedLesson {
+        Log.d("QUIZ_DEBUG", "quizType from Firebase = $quizType")
         val parsedQuizType = runCatching { StudentQuizType.valueOf(quizType) }
             .getOrDefault(StudentQuizType.INFO)
 

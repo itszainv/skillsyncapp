@@ -461,12 +461,33 @@ class FirestoreRepository {
                     ?.mapNotNull { it?.toString() }
                     ?.filter { it.isNotBlank() }
                     .orEmpty()
-                val correct = (component["correct"] as? Number)?.toInt()
+                
+                var correct = (component["correct"] as? Number)?.toInt()
+                
+                // Fallback: If 'correct' index is missing, try to find the 'answer' string in options
+                if (correct == null) {
+                    val answerStr = component["answer"]?.toString()
+                    if (answerStr != null) {
+                        val foundIndex = options.indexOf(answerStr)
+                        if (foundIndex != -1) {
+                            correct = foundIndex
+                        }
+                    }
+                }
+
                 if (options.isNotEmpty() && correct != null) {
                     StudentQuiz(
                         question = question,
                         options = options,
                         correctAnswerIndex = correct.coerceIn(0, options.lastIndex),
+                        explanation = explanation,
+                        type = StudentQuizType.MULTIPLE_CHOICE
+                    )
+                } else if (options.isNotEmpty()) {
+                    // Even if we don't know the correct one, show the options as a multiple choice
+                    StudentQuiz(
+                        question = question,
+                        options = options,
                         explanation = explanation,
                         type = StudentQuizType.MULTIPLE_CHOICE
                     )
