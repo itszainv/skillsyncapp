@@ -1,3 +1,10 @@
+/**********************************************************
+ * Created by: Asiyah Shoeb
+ * Date: 4/16/26
+ * Description: Screen displaying the list of quiz components (questions) within a specific lesson.
+ * Last Modified by: Asiyah Shoeb
+ **********************************************************/
+
 package com.example.skillsync.admin
 
 import androidx.compose.foundation.BorderStroke

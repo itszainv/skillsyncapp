@@ -1,3 +1,10 @@
+/**********************************************************
+ * Created by: Asiyah Shoeb
+ * Date: 4/16/26
+ * Description: Screen for new user registration using Firebase Authentication.
+ * Last Modified by: Asiyah Shoeb
+ **********************************************************/
+
 package com.example.skillsync.screens
 
 import android.widget.Toast

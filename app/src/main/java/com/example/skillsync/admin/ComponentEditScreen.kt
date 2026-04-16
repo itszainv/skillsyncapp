@@ -1,8 +1,17 @@
+/**********************************************************
+ * Created by: Asiyah Shoeb
+ * Date: 4/16/26
+ * Description: Screen for creating or editing individual quiz questions/components within a lesson.
+ * Last Modified by: Asiyah Shoeb
+ **********************************************************/
+
 package com.example.skillsync.admin
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -19,7 +28,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -29,6 +40,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -81,19 +94,38 @@ fun ComponentEditScreen(
     var saving by remember { mutableStateOf(false) }
     var typeExpanded by remember { mutableStateOf(false) }
 
+    val textFieldColors = OutlinedTextFieldDefaults.colors(
+        focusedTextColor = Color.White,
+        unfocusedTextColor = Color.White,
+        focusedContainerColor = Color.Transparent,
+        unfocusedContainerColor = Color.Transparent,
+        cursorColor = Color.White,
+        focusedLabelColor = Color.White,
+        unfocusedLabelColor = Color.White.copy(alpha = 0.7f),
+        focusedBorderColor = Color.White,
+        unfocusedBorderColor = Color.White.copy(alpha = 0.5f)
+    )
+
     Column(
         modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
             .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack, 
+                    contentDescription = "Back",
+                    tint = Color.White
+                )
             }
             Text(
                 if (componentIndex == null) "New question" else "Edit question",
                 fontSize = 18.sp,
-                fontWeight = FontWeight.Medium
+                fontWeight = FontWeight.Medium,
+                color = Color.White
             )
         }
 
@@ -110,6 +142,8 @@ fun ComponentEditScreen(
                 readOnly = true,
                 label = { Text("Question type") },
                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = typeExpanded) },
+                colors = textFieldColors,
+                textStyle = TextStyle(color = Color.White),
                 modifier = Modifier.fillMaxWidth().menuAnchor()
             )
             ExposedDropdownMenu(
@@ -132,6 +166,8 @@ fun ComponentEditScreen(
             value = question,
             onValueChange = { question = it },
             label = { Text("Question") },
+            colors = textFieldColors,
+            textStyle = TextStyle(color = Color.White),
             modifier = Modifier.fillMaxWidth(),
             minLines = 2
         )
@@ -141,7 +177,7 @@ fun ComponentEditScreen(
         // Type-specific fields
         when (selectedType) {
             ComponentType.MULTIPLE_CHOICE -> {
-                Text("Options", fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                Text("Options", fontWeight = FontWeight.Medium, fontSize = 14.sp, color = Color.White)
                 Spacer(Modifier.height(8.dp))
 
                 listOf(
@@ -153,7 +189,8 @@ fun ComponentEditScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(
                             selected = correctIndex == index,
-                            onClick = { correctIndex = index }
+                            onClick = { correctIndex = index },
+                            colors = RadioButtonDefaults.colors(selectedColor = Color.White, unselectedColor = Color.White.copy(alpha = 0.6f))
                         )
                         OutlinedTextField(
                             value = value,
@@ -166,6 +203,8 @@ fun ComponentEditScreen(
                                 }
                             },
                             label = { Text("Option $label") },
+                            colors = textFieldColors,
+                            textStyle = TextStyle(color = Color.White),
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -175,24 +214,26 @@ fun ComponentEditScreen(
                 Text(
                     "Select the radio button next to the correct answer",
                     fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = Color.White.copy(alpha = 0.7f)
                 )
             }
 
             ComponentType.TRUE_FALSE -> {
-                Text("Correct answer", fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                Text("Correct answer", fontWeight = FontWeight.Medium, fontSize = 14.sp, color = Color.White)
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     RadioButton(
                         selected = correctBool,
-                        onClick = { correctBool = true }
+                        onClick = { correctBool = true },
+                        colors = RadioButtonDefaults.colors(selectedColor = Color.White, unselectedColor = Color.White.copy(alpha = 0.6f))
                     )
-                    Text("True", modifier = Modifier.padding(end = 24.dp))
+                    Text("True", color = Color.White, modifier = Modifier.padding(end = 24.dp))
                     RadioButton(
                         selected = !correctBool,
-                        onClick = { correctBool = false }
+                        onClick = { correctBool = false },
+                        colors = RadioButtonDefaults.colors(selectedColor = Color.White, unselectedColor = Color.White.copy(alpha = 0.6f))
                     )
-                    Text("False")
+                    Text("False", color = Color.White)
                 }
             }
 
@@ -201,6 +242,8 @@ fun ComponentEditScreen(
                     value = answer,
                     onValueChange = { answer = it },
                     label = { Text("Accepted answer") },
+                    colors = textFieldColors,
+                    textStyle = TextStyle(color = Color.White),
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(Modifier.height(12.dp))
@@ -208,6 +251,8 @@ fun ComponentEditScreen(
                     value = hint,
                     onValueChange = { hint = it },
                     label = { Text("Hint (optional)") },
+                    colors = textFieldColors,
+                    textStyle = TextStyle(color = Color.White),
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -220,6 +265,8 @@ fun ComponentEditScreen(
             value = explanation,
             onValueChange = { explanation = it },
             label = { Text("Explanation (shown after answer)") },
+            colors = textFieldColors,
+            textStyle = TextStyle(color = Color.White),
             modifier = Modifier.fillMaxWidth(),
             minLines = 2
         )
